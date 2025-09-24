@@ -1,0 +1,12 @@
+export { gradientBg } from "./constants";
+export { Section } from "./Section";
+export { FeatureCard } from "./FeatureCard";
+export { Step } from "./Step";
+export { NotebookMock } from "./NotebookMock";
+export { Navbar } from "./Navbar";
+export { Hero } from "./Hero";
+export { FeatureGrid } from "./FeatureGrid";
+export { DemoCTA } from "./DemoCTA";
+export { HowItWorks } from "./HowItWorks";
+export { FAQ } from "./FAQ";
+export { Footer } from "./Footer";
