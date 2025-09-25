@@ -22,9 +22,9 @@
     "noUncheckedSideEffectImports": true,
 
     "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] },
+    "paths": { "@/*": ["Frontend/src/*"] },
 
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["Frontend/src"]
 }
