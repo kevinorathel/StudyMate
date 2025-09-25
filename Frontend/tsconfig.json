@@ -6,7 +6,7 @@
   ],
   "compilerOptions": {
     "baseUrl": ".",
-    "paths": { "@/*": ["Frontend/src/*"] }
+    "paths": { "@/*": ["src/*"] }
   },
-  "include": ["Frontend/src"]
+  "include": ["src"]
 }
