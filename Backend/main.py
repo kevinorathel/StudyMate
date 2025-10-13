@@ -115,7 +115,7 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 )
                 session_exists = cur.fetchone()[0]
 
-                if session_exists:
+                if session_exists and session_exists[0]:
                     cur.execute(
                         "INSERT INTO sessiondocuments (session_id, document_id) VALUES (%s, %s) RETURNING id;",
                         (session_id, document_id)
@@ -201,27 +201,94 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
 #             content={"status": "error", "message": f"An unexpected server error occurred: {str(e)}"}
 #         )
 
-@app.post("/ask/")
-async def ask_question(request: AskRequest):
+@app.get("/retrieveChatHistory/")
+async def ask_question(session_id: int):
     """Handles chat interaction and remembers conversation history."""
-    session_id = request.session_id
-    question = request.question
 
-    if session_id not in index_store:
-        return {"error": "Invalid session. Please upload a PDF first."}
+    try:
+        with get_cursor() as cur:
 
-    index, chunks = index_store[session_id]
-    results = search_index(question, index, chunks, k=3)
-    context = results[0][0]
-    history = conversation_store.get(session_id, [])
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+                    (session_id,)
+                )
+            session_exists = cur.fetchone()
 
-    bot_response = generate_response(question, context, history)
+            if session_exists and session_exists[0]:
 
-    history.append(f"User: {question}")
-    history.append(f"Bot: {bot_response}")
-    conversation_store[session_id] = history
+                cur.execute(
+                    "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
+                    (session_id,)
+                )
 
-    return {"response": bot_response, "conversation_history": history}
+                ChatHistory = cur.fetchall()
+
+                print(ChatHistory)
+
+    except Exception as db_error:
+
+        print(f"Database operation failed: {db_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+        )
+
+    return {"response": ChatHistory}
+
+# @app.get("/ask/")
+# async def ask_question(request: AskRequest):
+#     """Handles chat interaction and remembers conversation history."""
+#     session_id = request.session_id
+#     question = request.question
+#
+#     try:
+#         with get_cursor() as cur:
+#
+#             cur.execute(
+#                     "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+#                     (session_id,)
+#                 )
+#             session_exists = cur.fetchone()[0]
+#
+#             if session_exists:
+#
+#                 cur.execute(
+#                     "SELECT FROM ChatHistory (sender, message, created_at);",
+#                 )
+#
+#                 ChatHistory = cur.fetchall()
+#
+#                 print(ChatHistory)
+#
+#
+#
+#                 # if not sessionDocumentResult:
+#                 #     raise Exception("Failed to create sessionDocument entry after session creation.")
+#                 #
+#                 # else:
+#                 #     raise Exception(f"Provided session ID {session_id} is not found in the database.")
+#
+#
+#
+#
+#
+#     # if session_id not in index_store:
+#     #     return {"error": "Invalid session. Please upload a PDF first."}
+#     #
+#     # index, chunks = index_store[session_id]
+#     # results = search_index(question, index, chunks, k=3)
+#     # context = results[0][0]
+#     # history = conversation_store.get(session_id, [])
+#     #
+#     # bot_response = generate_response(question, context, history)
+#     #
+#     # history.append(f"User: {question}")
+#     # history.append(f"Bot: {bot_response}")
+#     # conversation_store[session_id] = history
+#
+#     # return {"response": bot_response, "conversation_history": history}
+#
+#     return{"response": "lol"}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
