@@ -26,16 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-conversation_store = {}
 
 class AskRequest(BaseModel):
-    session_id: str
+    session_id: int
     question: str
 
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
 def read_root():
     return {"message": "Server is running fine"}
-
 
 @app.post("/upload/", status_code=status.HTTP_200_OK)
 async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] = None):
@@ -149,61 +147,6 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
             detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
         )
 
-
-# @app.get("/generateAudioLesson")
-# async def generate_audio_lesson(
-#     file_path: str = Query(..., description="The full, URL-encoded path to the scanned PDF file.")
-# ):
-#     """
-#     Processes a scanned PDF, generates multiple MP3 audio lessons,
-#     and returns them bundled as a single ZIP file.
-#     """
-#     if not audiogenmain:
-#         return JSONResponse(
-#             status_code=500,
-#             content={"status": "error", "message": "Audio generation module failed to load. Check server logs."}
-#         )
-#
-#     print(f"Received request for file_path: {file_path}")
-#
-#     try:
-#         # Run the core logic, which now returns ZIP binary data and filename
-#         zip_bytes, output_zip_filename = audiogenmain(file_path)
-#
-#         # Use io.BytesIO to create a file-like object from the binary data
-#         zip_file_like = io.BytesIO(zip_bytes)
-#
-#         # Return a StreamingResponse to stream the ZIP file to the client
-#         return StreamingResponse(
-#             zip_file_like,
-#             media_type="application/zip",
-#             headers={
-#                 "Content-Disposition": f"attachment; filename={output_zip_filename}",
-#                 "Content-Length": str(len(zip_bytes))
-#             }
-#         )
-#
-#     except ConnectionError as e:
-#         # Handle TTS client initialization failure
-#         return JSONResponse(
-#             status_code=503,
-#             content={"status": "error", "message": f"Service unavailable: {str(e)}"}
-#         )
-#
-#     except ValueError as e:
-#         # Handle errors from PDF reading/chunking
-#         return JSONResponse(
-#             status_code=400,
-#             content={"status": "error", "message": f"PDF processing error: {str(e)}"}
-#         )
-#
-#     except Exception as e:
-#         # Catch any other unexpected errors
-#         return JSONResponse(
-#             status_code=500,
-#             content={"status": "error", "message": f"An unexpected server error occurred: {str(e)}"}
-#         )
-
 @app.get("/retrieveChatHistory/")
 async def retrieve_chat_history(session_id: int):
     """Handles chat interaction and remembers conversation history."""
@@ -309,6 +252,8 @@ async def ask_question(request: AskRequest):
                 context = results[0][0]
                 response = generate_response(question, context, history)
 
+                # print(f"Context:{context} \nHistory:{history}")
+
                 cur.execute(
                     "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
                     (session_id, 'User', question)
@@ -329,6 +274,60 @@ async def ask_question(request: AskRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
         )
+
+# @app.get("/generateAudioLesson")
+# async def generate_audio_lesson(
+#     file_path: str = Query(..., description="The full, URL-encoded path to the scanned PDF file.")
+# ):
+#     """
+#     Processes a scanned PDF, generates multiple MP3 audio lessons,
+#     and returns them bundled as a single ZIP file.
+#     """
+#     if not audiogenmain:
+#         return JSONResponse(
+#             status_code=500,
+#             content={"status": "error", "message": "Audio generation module failed to load. Check server logs."}
+#         )
+#
+#     print(f"Received request for file_path: {file_path}")
+#
+#     try:
+#         # Run the core logic, which now returns ZIP binary data and filename
+#         zip_bytes, output_zip_filename = audiogenmain(file_path)
+#
+#         # Use io.BytesIO to create a file-like object from the binary data
+#         zip_file_like = io.BytesIO(zip_bytes)
+#
+#         # Return a StreamingResponse to stream the ZIP file to the client
+#         return StreamingResponse(
+#             zip_file_like,
+#             media_type="application/zip",
+#             headers={
+#                 "Content-Disposition": f"attachment; filename={output_zip_filename}",
+#                 "Content-Length": str(len(zip_bytes))
+#             }
+#         )
+#
+#     except ConnectionError as e:
+#         # Handle TTS client initialization failure
+#         return JSONResponse(
+#             status_code=503,
+#             content={"status": "error", "message": f"Service unavailable: {str(e)}"}
+#         )
+#
+#     except ValueError as e:
+#         # Handle errors from PDF reading/chunking
+#         return JSONResponse(
+#             status_code=400,
+#             content={"status": "error", "message": f"PDF processing error: {str(e)}"}
+#         )
+#
+#     except Exception as e:
+#         # Catch any other unexpected errors
+#         return JSONResponse(
+#             status_code=500,
+#             content={"status": "error", "message": f"An unexpected server error occurred: {str(e)}"}
+#         )
 
 
 if __name__ == "__main__":
