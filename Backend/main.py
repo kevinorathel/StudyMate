@@ -1,5 +1,8 @@
+import ast
 from typing import Optional
 
+import numpy as np
+from faiss import IndexFlatL2
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -24,7 +27,6 @@ app.add_middleware(
 )
 
 conversation_store = {}
-index_store = {}
 
 class AskRequest(BaseModel):
     session_id: str
@@ -79,14 +81,15 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 (
                     document_id,
                     i,
+                    chunks[i],
                     vector.tolist()
                 )
                 for i, vector in enumerate(vectors)
             ]
 
             insert_query = """
-                INSERT INTO embeddings (document_id, chunk_index, embedding) 
-                VALUES (%s, %s, %s);
+                INSERT INTO embeddings (document_id, chunk_index, chunk_text, embedding) 
+                VALUES (%s, %s, %s, %s);
             """
             cur.executemany(insert_query, data_to_insert)
 
@@ -115,7 +118,7 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 )
                 session_exists = cur.fetchone()[0]
 
-                if session_exists and session_exists[0]:
+                if session_exists:
                     cur.execute(
                         "INSERT INTO sessiondocuments (session_id, document_id) VALUES (%s, %s) RETURNING id;",
                         (session_id, document_id)
@@ -202,8 +205,38 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
 #         )
 
 @app.get("/retrieveChatHistory/")
-async def ask_question(session_id: int):
+async def retrieve_chat_history(session_id: int):
     """Handles chat interaction and remembers conversation history."""
+
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+                    (session_id,)
+                )
+            session_exists = cur.fetchone()
+            if session_exists and session_exists[0]:
+                cur.execute(
+                    "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
+                    (session_id,)
+                )
+                ChatHistory = cur.fetchall()
+                # print(ChatHistory)
+
+    except Exception as db_error:
+        print(f"Database operation failed: {db_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+        )
+
+    return {"response": ChatHistory}
+
+@app.get("/ask/")
+async def ask_question(request: AskRequest):
+    """Handles chat interaction and remembers conversation history."""
+    session_id = request.session_id
+    question = request.question
 
     try:
         with get_cursor() as cur:
@@ -223,7 +256,71 @@ async def ask_question(session_id: int):
 
                 ChatHistory = cur.fetchall()
 
-                print(ChatHistory)
+                formatted_lines = []
+
+                for entry in ChatHistory:
+                    sender = entry[0]
+                    message = entry[1]
+                    formatted_line = f"{sender}: {message}"
+
+                    formatted_lines.append(formatted_line)
+
+                history = "\n".join(formatted_lines)
+
+                # print(history)
+
+                cur.execute(
+                    "SELECT embedding, chunk_text FROM embeddings e "
+                    "LEFT JOIN sessiondocuments sd on sd.session_id = %s "
+                    "WHERE e.document_id = sd.document_id;",
+                    (session_id,)
+                )
+
+                index_store = cur.fetchall()
+
+                # print(index_store)
+
+                raw_embeddings = []
+                chunks = []
+
+                for embedding_data, chunk_text in index_store:
+                    chunks.append(chunk_text)
+
+                    try:
+                        float_list = ast.literal_eval(embedding_data)
+                        vector = np.array(float_list, dtype='float32')
+                        raw_embeddings.append(vector)
+
+                    except Exception as e:
+                        print(f"Error converting embedding data to vector: {e}")
+
+                if not raw_embeddings:
+                    print("Warning: No embeddings found for this session.")
+                    index = None
+                    chunks = []
+                else:
+                    vectors_matrix = np.vstack(raw_embeddings)
+                    dimension = vectors_matrix.shape[1]
+
+                    index = IndexFlatL2(dimension)
+                    index.add(vectors_matrix)
+
+                results = search_index(question, index, chunks, k=3)
+                context = results[0][0]
+                response = generate_response(question, context, history)
+
+                cur.execute(
+                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                    (session_id, 'User', question)
+                )
+
+                cur.execute(
+                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                    (session_id, 'Bot', response)
+                )
+
+                return {"response": response}
+
 
     except Exception as db_error:
 
@@ -233,62 +330,6 @@ async def ask_question(session_id: int):
             detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
         )
 
-    return {"response": ChatHistory}
-
-# @app.get("/ask/")
-# async def ask_question(request: AskRequest):
-#     """Handles chat interaction and remembers conversation history."""
-#     session_id = request.session_id
-#     question = request.question
-#
-#     try:
-#         with get_cursor() as cur:
-#
-#             cur.execute(
-#                     "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
-#                     (session_id,)
-#                 )
-#             session_exists = cur.fetchone()[0]
-#
-#             if session_exists:
-#
-#                 cur.execute(
-#                     "SELECT FROM ChatHistory (sender, message, created_at);",
-#                 )
-#
-#                 ChatHistory = cur.fetchall()
-#
-#                 print(ChatHistory)
-#
-#
-#
-#                 # if not sessionDocumentResult:
-#                 #     raise Exception("Failed to create sessionDocument entry after session creation.")
-#                 #
-#                 # else:
-#                 #     raise Exception(f"Provided session ID {session_id} is not found in the database.")
-#
-#
-#
-#
-#
-#     # if session_id not in index_store:
-#     #     return {"error": "Invalid session. Please upload a PDF first."}
-#     #
-#     # index, chunks = index_store[session_id]
-#     # results = search_index(question, index, chunks, k=3)
-#     # context = results[0][0]
-#     # history = conversation_store.get(session_id, [])
-#     #
-#     # bot_response = generate_response(question, context, history)
-#     #
-#     # history.append(f"User: {question}")
-#     # history.append(f"Bot: {bot_response}")
-#     # conversation_store[session_id] = history
-#
-#     # return {"response": bot_response, "conversation_history": history}
-#
-#     return{"response": "lol"}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
