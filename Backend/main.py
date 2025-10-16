@@ -13,7 +13,7 @@ from rest_framework import status
 
 from dbconnect import get_cursor
 import bcrypt
-#from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
+from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
 #from AudioGen import audiogenmain
 
 from fastapi import APIRouter
