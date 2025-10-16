@@ -5,15 +5,18 @@ import numpy as np
 from faiss import IndexFlatL2
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 import uvicorn
 import os
 
 from rest_framework import status
 
 from dbconnect import get_cursor
-from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
-from AudioGen import audiogenmain
+import bcrypt
+#from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
+#from AudioGen import audiogenmain
+
+from fastapi import APIRouter
 
 
 app = FastAPI(title="StudyMate API")
@@ -26,14 +29,99 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#Pydantic models for request validation
+class SignupRequest(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 class AskRequest(BaseModel):
     session_id: int
     question: str
 
+
+
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
 def read_root():
     return {"message": "Server is running fine"}
+
+#Signup route
+@app.post("/api/auth/signup")
+def signup_user(payload: SignupRequest):
+    try:
+        with get_cursor() as cur:
+
+            # Split full name into first/last
+            full_name = payload.full_name.strip()
+            first_name, last_name = (full_name.split(" ", 1) + [""])[:2]
+
+            # Check if email already exists
+            cur.execute("SELECT user_id FROM user_login WHERE email = %s", (payload.email,))
+            existing_user = cur.fetchone()
+            if existing_user:
+                raise HTTPException(status_code=400, detail="Email already registered")
+
+            # Hash password before storing
+            hashed_pw = bcrypt.hashpw(payload.password.encode('utf-8'), bcrypt.gensalt())
+
+            # Insert user record
+            cur.execute(
+                """
+                INSERT INTO user_login (first_name, last_name, email, pwd, is_verified)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING user_id;
+                """,
+                (first_name, last_name, payload.email, hashed_pw.decode('utf-8'), False)
+            )
+
+            # conn.commit()
+            user_id = cur.fetchone()[0]
+
+            cur.close()
+            # conn.close()
+
+            return {"message": "User registered successfully", "user_id": user_id}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("Signup error:", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+#Login route
+@app.post("/api/auth/login")
+def login_user(payload: LoginRequest):
+    try:
+        with get_cursor() as cur:
+
+            cur.execute("SELECT user_id, pwd FROM user_login WHERE email = %s", (payload.email,))
+            user = cur.fetchone()
+
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user_id, stored_hashed_pw = user
+
+            # Verify password
+            if not bcrypt.checkpw(payload.password.encode('utf-8'), stored_hashed_pw.encode('utf-8')):
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+
+            cur.close()
+            #conn.close()
+
+            return {"message": "Login successful", "user_id": user_id}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("Login error:", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.post("/upload/", status_code=status.HTTP_200_OK)
 async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] = None):
