@@ -20,3 +20,4 @@ def get_cursor():
     finally:
         cur.close()
         conn.close()
+

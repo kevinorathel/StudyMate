@@ -13,6 +13,8 @@ import { SignupPage } from "./pages/SignupPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
+import { OtpVerifyPage } from "@/pages/OtpVerifyPage";
+
 const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
 
 const router = createBrowserRouter([
@@ -29,13 +31,17 @@ const router = createBrowserRouter([
     element: <SignupPage />,
   },
   {
-    element: <ProtectedRoute />,
-    children: [
-      {
+    path: "/verify-otp",
+    element: <OtpVerifyPage />,
+  },
+  {
+    // element: <ProtectedRoute />,
+    // children: [
+    //   {
         path: "/dashboard",
         element: <DashboardPage />,
-      },
-    ],
+    //   },
+    // ],
   },
 ]);
 
