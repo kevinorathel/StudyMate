@@ -9,6 +9,7 @@ import {
   FAQ,
   Footer,
 } from "@/components/landing";
+import { isAcceptedUpload } from "@/lib/utils";
 
 export default function LandingPage() {
   const [sources, setSources] = React.useState<string[]>([
@@ -17,8 +18,14 @@ export default function LandingPage() {
     "NASA_Ozone_2023_brief.pdf",
   ]);
 
-  const handleFileSelected = (file: File) =>
+  const handleFileSelected = (file: File) => {
+    if (!isAcceptedUpload(file)) {
+      window.alert("Please upload a PDF or DOCX file.");
+      return;
+    }
+
     setSources((prev) => [file.name, ...prev]);
+  };
 
   return (
     <div

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookOpen } from "lucide-react";
+import { ACCEPTED_FILE_ACCEPT, isAcceptedUpload } from "@/lib/utils";
 
 export function DemoCTA({
   sources,
@@ -31,15 +32,23 @@ export function DemoCTA({
             <Input
               type="file"
               className="cursor-pointer"
+              accept={ACCEPTED_FILE_ACCEPT}
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) onFileSelected(file);
+                if (!file) {
+                  return;
+                }
+
+                if (!isAcceptedUpload(file)) {
+                  window.alert("Please upload a PDF or DOCX file.");
+                  e.target.value = "";
+                  return;
+                }
+
+                onFileSelected(file);
               }}
             />
             <Button className="w-full">Process sample</Button>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              We don’t store your files. Processing happens securely.
-            </div>
           </div>
         </CardContent>
       </Card>
