@@ -6,10 +6,10 @@ from contextlib import contextmanager
 @contextmanager
 def get_cursor():
     conn = psycopg2.connect(
-        dbname="study_db_gamx",
+        dbname="study_db_hlh8",
         user="root",
-        password="mGc4H5IoMM3SlCPfSpeReoWlEa1cy5Dr",
-        host="dpg-d34trn6r433s738c5560-a.virginia-postgres.render.com",
+        password="7jmM6QXxiXQDkdvon446ftlYVaixWqoL",
+        host="dpg-d3onbjmmcj7s739ebggg-a.virginia-postgres.render.com",
         port="5432",
         sslmode="require"
     )
@@ -20,3 +20,4 @@ def get_cursor():
     finally:
         cur.close()
         conn.close()
+

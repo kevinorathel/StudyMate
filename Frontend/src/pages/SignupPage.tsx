@@ -14,22 +14,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE_URL } from "@/config";
+import { buildAuthUserProfile } from "@/lib/auth";
 
 export function SignupPage() {
-  const { setAuthToken } = useAuth();
+  const { setAuthToken, setUser } = useAuth();
   const navigate = useNavigate();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [manualError, setManualError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isManualSubmitting, setIsManualSubmitting] = useState(false);
 
-  const handleGoogleSuccess = async (
-    credentialResponse: CredentialResponse
-  ) => {
-    const token = credentialResponse.credential;
-
-    if (!token) {
-      setError("Google sign up did not return a credential. Please try again.");
+  // Google login handler
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    const credential = credentialResponse.credential;
+    if (!credential) {
+      setError("Google sign-up did not return a credential. Please try again.");
       return;
     }
 
@@ -39,10 +39,8 @@ export function SignupPage() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: credential }),
       });
 
       if (!response.ok) {
@@ -50,151 +48,175 @@ export function SignupPage() {
       }
 
       const data = await response.json();
-      setAuthToken(data.authToken);
+      const authToken =
+        data?.authToken ??
+        data?.token ??
+        (data?.user_id ? String(data.user_id) : null);
+      if (!authToken) {
+        throw new Error("No auth token returned from backend.");
+      }
+      setAuthToken(authToken);
+      const profile = buildAuthUserProfile(data?.user ?? data, {
+        email: data?.user?.email ?? data?.email,
+        fullName:
+          data?.user?.full_name ?? data?.full_name ?? data?.fullName ?? null,
+        userId: data?.user_id ?? data?.user?.id ?? null,
+      });
+      setUser(profile);
       navigate("/dashboard");
-    } catch (err) {
-      console.error("Authentication Error:", err);
-      setError("We could not complete your Google sign up. Please try again.");
+    } catch (error) {
+      console.error("Authentication Error:", error);
+      setError(
+        "We could not authenticate your Google account. Please try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Handle normal signup (send OTP)
+  const handleSignup = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!fullName || !email || !password) {
+      setError("Please complete all required fields.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name: fullName, email, password }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Signup failed (${response.status}).`);
+      }
+
+      const data = await response.json();
+      const authToken =
+        data?.authToken ??
+        data?.token ??
+        (data?.user_id ? String(data.user_id) : null);
+      if (!authToken) {
+        throw new Error("No auth token returned from backend.");
+      }
+      setAuthToken(authToken);
+      const profile = buildAuthUserProfile(data?.user ?? data, {
+        email: data?.user?.email ?? data?.email ?? email,
+        fullName:
+          data?.user?.full_name ?? data?.full_name ?? fullName,
+        userId: data?.user_id ?? data?.user?.id ?? null,
+      });
+      setUser(profile);
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Signup Error:", err);
+      setError(
+        "We couldn't create your account. Please review your details and try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Sign Up</CardTitle>
-          <CardDescription>
-            Enter your information to create an account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setManualError(null);
-              setIsManualSubmitting(true);
-
-              const formData = new FormData(event.currentTarget);
-              const firstName = (formData.get("first-name") as string | null)?.trim() ?? "";
-              const lastName = (formData.get("last-name") as string | null)?.trim() ?? "";
-              const email = (formData.get("email") as string | null)?.trim() ?? "";
-              const password = (formData.get("password") as string | null)?.trim() ?? "";
-
-              if (!firstName || !lastName || !email || !password) {
-                setManualError("Please complete all required fields.");
-                setIsManualSubmitting(false);
-                return;
-              }
-
-              window.alert(
-                "Manual signup is not yet available. Please use Google sign up in the meantime."
-              );
-              setIsManualSubmitting(false);
-            }}
-          >
-            <div className="grid gap-2 sm:grid-cols-2 sm:gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="first-name">First name</Label>
-                <Input
-                  id="first-name"
-                  name="first-name"
-                  placeholder="John"
-                  autoComplete="given-name"
-                  required
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="last-name">Last name</Label>
-                <Input
-                  id="last-name"
-                  name="last-name"
-                  placeholder="Doe"
-                  autoComplete="family-name"
-                  required
-                />
-              </div>
+        <form onSubmit={handleSignup} className="grid gap-4">
+          <CardHeader>
+            <CardTitle className="text-2xl">Sign Up</CardTitle>
+            <CardDescription>
+              Enter your information to create an account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="full-name">Full Name</Label>
+              <Input
+                id="full-name"
+                placeholder="John Doe"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                disabled={isSubmitting}
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
-                name="email"
                 type="email"
-                inputMode="email"
-                autoComplete="email"
                 placeholder="m@example.com"
                 required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
-                name="password"
                 type="password"
-                autoComplete="new-password"
-                minLength={8}
-                placeholder="Create a strong password"
                 required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
+          </CardContent>
+          <CardFooter className="flex flex-col gap-4">
+            <Button className="w-full" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Creating account…" : "Create account"}
+            </Button>
+            <div className="mt-4 text-center text-sm">
+              Already have an account?{" "}
+              <Link to="/login" className="underline">
+                Login
+              </Link>
+            </div>
 
-            {manualError ? (
+            <div className="relative w-full">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or sign up with
+                </span>
+              </div>
+            </div>
+
+            {error ? (
               <p className="text-sm text-destructive" role="alert">
-                {manualError}
+                {error}
               </p>
             ) : null}
 
-            <Button className="w-full" type="submit" disabled={isManualSubmitting}>
-              {isManualSubmitting ? "Processing…" : "Create account"}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-4">
-          <div className="text-center text-sm">
-            Already have an account?{" "}
-            <Link to="/login" className="underline">
-              Login
-            </Link>
-          </div>
-
-          <div className="relative w-full">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
+            <div className="flex w-full justify-center">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() =>
+                  setError(
+                    "Google sign-up failed. Please refresh the page and try again."
+                  )
+                }
+                useOneTap
+              />
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or sign up with
-              </span>
-            </div>
-          </div>
-
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
-
-          <div className="flex w-full justify-center">
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() =>
-                setError(
-                  "Google sign-up failed. Please refresh the page and try again."
-                )
-              }
-              useOneTap
-            />
-          </div>
-        </CardFooter>
-        {isSubmitting ? (
-          <div className="pb-4 text-center text-xs text-muted-foreground">
-            Creating your account…
-          </div>
-        ) : null}
+            {isSubmitting ? (
+              <div className="pb-2 text-center text-xs text-muted-foreground">
+                Creating your account…
+              </div>
+            ) : null}
+          </CardFooter>
+        </form>
       </Card>
     </div>
   );

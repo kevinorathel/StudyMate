@@ -9,9 +9,11 @@ import { ACCEPTED_FILE_ACCEPT, isAcceptedUpload } from "@/lib/utils";
 export function DemoCTA({
   sources,
   onFileSelected,
+  isUploading = false,
 }: {
   sources: string[];
   onFileSelected: (file: File) => void;
+  isUploading?: boolean;
 }) {
   return (
     <Section id="demo" className="pb-6 md:pb-12">
@@ -33,6 +35,7 @@ export function DemoCTA({
               type="file"
               className="cursor-pointer"
               accept={ACCEPTED_FILE_ACCEPT}
+              disabled={isUploading}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) {
@@ -48,7 +51,9 @@ export function DemoCTA({
                 onFileSelected(file);
               }}
             />
-            <Button className="w-full">Process sample</Button>
+            <Button className="w-full" disabled={isUploading}>
+              {isUploading ? "Uploading…" : "Process sample"}
+            </Button>
           </div>
         </CardContent>
       </Card>
