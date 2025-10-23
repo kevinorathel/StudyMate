@@ -140,6 +140,32 @@ export function LoginPage() {
     }
   };
 
+// Handle normal signup
+const handleSignin = async () => {
+  const email = (document.getElementById("email") as HTMLInputElement).value;
+  const password = (document.getElementById("password") as HTMLInputElement).value;
+
+  try {
+    const res = await fetch("http://localhost:8000/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!res.ok) throw new Error("Signin failed");
+
+    const data = await res.json();
+    console.log("Signed in successfully:", data);
+
+
+    // redirect to dashboard (or login page)
+    navigate("/dashboard");
+  } catch (err) {
+    console.error("Error signing in...", err);
+  }
+};
+
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
