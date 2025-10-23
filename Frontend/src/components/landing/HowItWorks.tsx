@@ -15,7 +15,7 @@ export function HowItWorks() {
             <Step
               n={1}
               title="Upload sources"
-              desc="PDFs, docs, or pasted notes—all supported with automatic text extraction."
+              desc="Upload PDF or DOCX files and we’ll handle the text extraction automatically."
             />
             <Step
               n={2}

@@ -117,4 +117,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* NotebookLM header alignment helpers */
+  h2,
+  .text-sm.font-semibold {
+    letter-spacing: -0.01em;
+  }
+  .text-xs {
+    letter-spacing: 0;
+  }
 }

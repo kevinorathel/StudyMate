@@ -4,13 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookOpen } from "lucide-react";
+import { ACCEPTED_FILE_ACCEPT, isAcceptedUpload } from "@/lib/utils";
 
 export function DemoCTA({
   sources,
   onFileSelected,
+  isUploading = false,
 }: {
   sources: string[];
   onFileSelected: (file: File) => void;
+  isUploading?: boolean;
 }) {
   return (
     <Section id="demo" className="pb-6 md:pb-12">
@@ -31,15 +34,26 @@ export function DemoCTA({
             <Input
               type="file"
               className="cursor-pointer"
+              accept={ACCEPTED_FILE_ACCEPT}
+              disabled={isUploading}
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) onFileSelected(file);
+                if (!file) {
+                  return;
+                }
+
+                if (!isAcceptedUpload(file)) {
+                  window.alert("Please upload a PDF or DOCX file.");
+                  e.target.value = "";
+                  return;
+                }
+
+                onFileSelected(file);
               }}
             />
-            <Button className="w-full">Process sample</Button>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              We don’t store your files. Processing happens securely.
-            </div>
+            <Button className="w-full" disabled={isUploading}>
+              {isUploading ? "Uploading…" : "Process sample"}
+            </Button>
           </div>
         </CardContent>
       </Card>

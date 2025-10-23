@@ -1,14 +1,27 @@
 import { Navigate, Outlet } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "@/context/AuthContext";
+import { BYPASS_AUTH } from "@/config";
 
 export function ProtectedRoute() {
-  const { authToken } = useAuth();
+  const { authToken, isReady } = useAuth();
+
+  if (BYPASS_AUTH) {
+    return <Outlet />;
+  }
+
+  if (!isReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          Checking authentication…
+        </p>
+      </div>
+    );
+  }
 
   if (!authToken) {
-    // If no token, redirect to the login page
     return <Navigate to="/login" replace />;
   }
 
-  // If there's a token, render the child route (e.g., the dashboard)
   return <Outlet />;
 }

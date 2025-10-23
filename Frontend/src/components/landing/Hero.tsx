@@ -46,7 +46,7 @@ export function Hero({ sources }: { sources: string[] }) {
 
             <div className="mt-6 flex items-center gap-3 text-sm text-zinc-600 dark:text-zinc-300">
               <CheckCircle2 className="h-4 w-4" /> No setup •
-              <CheckCircle2 className="h-4 w-4" /> Works with PDFs &amp; docs •
+              <CheckCircle2 className="h-4 w-4" /> Works with PDF &amp; DOCX •
               <CheckCircle2 className="h-4 w-4" /> Private by default
             </div>
           </div>

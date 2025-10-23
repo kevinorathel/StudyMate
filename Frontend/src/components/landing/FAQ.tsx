@@ -23,7 +23,8 @@ export function FAQ() {
         <AccordionItem value="item-2">
           <AccordionTrigger>What file types are supported?</AccordionTrigger>
           <AccordionContent>
-            PDFs, DOCX, TXT, and Markdown. Slides (PPTX) are in progress.
+            We currently support PDF and DOCX uploads. Additional formats are on
+            the roadmap.
           </AccordionContent>
         </AccordionItem>
         <AccordionItem value="item-3">

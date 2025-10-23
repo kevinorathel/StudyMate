@@ -70,7 +70,7 @@ def format_history(history_list):
 
 
 if __name__ == "__main__":
-    file_path = r"C:\Users\kevin\OneDrive\Desktop\College\Clark U\Design and Analysis of Algorithms\Chapter 1\Introduction to Graph theory.pdf"
+    file_path = r"/Users/gitesh/Downloads/lecture_1.pdf"
     print("Initializing RAG system...")
 
     text = read_scanned_pdf(file_path)
