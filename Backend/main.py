@@ -1,5 +1,5 @@
 import ast
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 import numpy as np
 from faiss import IndexFlatL2
@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import uvicorn
 import os
-from datetime import datetime
 
 from rest_framework import status
 
@@ -44,27 +43,13 @@ class AskRequest(BaseModel):
     session_id: int
     question: str
 
-class SessionCreateRequest(BaseModel):
-    user_id: int
-    session_name: Optional[str] = None
-
-class SessionDocument(BaseModel):
-    document_id: int
-    document_title: str
-
-class SessionResponse(BaseModel):
-    session_id: int
-    session_name: str
-    documents: List[SessionDocument]
-
 
 
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
 def read_root():
     return {"message": "Server is running fine"}
 
-#Signup route
-@app.post("/api/auth/signup")
+@app.post("/signup", status_code=status.HTTP_200_OK)
 def signup_user(payload: SignupRequest):
     try:
         with get_cursor() as cur:
@@ -98,21 +83,7 @@ def signup_user(payload: SignupRequest):
             cur.close()
             # conn.close()
 
-            full_name_joined = " ".join(
-                part for part in [first_name, last_name] if part
-            ).strip()
-
-            return {
-                "message": "User registered successfully",
-                "user_id": user_id,
-                "user": {
-                    "id": user_id,
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "full_name": full_name_joined if full_name_joined else None,
-                    "email": payload.email,
-                },
-            }
+            return {"message": "User registered successfully", "user_id": user_id}
 
     except HTTPException as e:
         raise e
@@ -120,27 +91,18 @@ def signup_user(payload: SignupRequest):
         print("Signup error:", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-#Login route
-@app.post("/api/auth/login")
+@app.post("/login", status_code=status.HTTP_200_OK)
 def login_user(payload: LoginRequest):
     try:
         with get_cursor() as cur:
 
-            cur.execute(
-                """
-                SELECT user_id, pwd, first_name, last_name, email
-                FROM user_login
-                WHERE email = %s
-                """,
-                (payload.email,),
-            )
+            cur.execute("SELECT user_id, pwd FROM user_login WHERE email = %s", (payload.email,))
             user = cur.fetchone()
 
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
 
-            user_id, stored_hashed_pw, first_name, last_name, email = user
+            user_id, stored_hashed_pw = user
 
             # Verify password
             if not bcrypt.checkpw(payload.password.encode('utf-8'), stored_hashed_pw.encode('utf-8')):
@@ -149,172 +111,13 @@ def login_user(payload: LoginRequest):
             cur.close()
             #conn.close()
 
-            full_name_joined = " ".join(
-                part for part in [first_name, last_name] if part
-            ).strip()
-
-            return {
-                "message": "Login successful",
-                "user_id": user_id,
-                "user": {
-                    "id": user_id,
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "full_name": full_name_joined if full_name_joined else None,
-                    "email": email,
-                },
-            }
+            return {"message": "Login successful", "user_id": user_id}
 
     except HTTPException as e:
         raise e
     except Exception as e:
         print("Login error:", e)
         raise HTTPException(status_code=500, detail="Internal server error")
-
-def _normalize_session_rows(rows: List[tuple]) -> List[Dict[str, Any]]:
-    by_session: Dict[int, Dict[str, Any]] = {}
-    for row in rows:
-        (
-            session_id,
-            session_name,
-            document_id,
-            document_title,
-        ) = row
-
-        if session_id not in by_session:
-            by_session[session_id] = {
-                "session_id": session_id,
-                "session_name": session_name,
-                "documents": [],
-            }
-
-        if document_id is not None:
-            by_session[session_id]["documents"].append(
-                {
-                    "document_id": document_id,
-                    "document_title": document_title,
-                }
-            )
-
-    # Sort sessions by creation order (descending) so newest first
-    sessions = list(by_session.values())
-    sessions.sort(key=lambda item: item["session_id"], reverse=True)
-    for session in sessions:
-        session["documents"].sort(key=lambda doc: doc["document_id"], reverse=True)
-    return sessions
-
-
-def _default_session_name() -> str:
-    return f"Study Session {datetime.utcnow():%Y%m%d%H%M%S}"
-
-
-def _group_session_history_rows(rows: List[tuple]) -> List[Dict[str, Any]]:
-    grouped: Dict[int, Dict[str, Any]] = {}
-    for row in rows:
-        (
-            session_id,
-            session_name,
-            sender,
-            message,
-            created_at,
-        ) = row
-
-        if session_id not in grouped:
-            grouped[session_id] = {
-                "session_id": session_id,
-                "session_name": session_name,
-                "messages": [],
-            }
-
-        if sender is not None:
-            grouped[session_id]["messages"].append((sender, message, created_at))
-
-    sessions = list(grouped.values())
-    sessions.sort(key=lambda item: item["session_id"], reverse=True)
-    for session in sessions:
-        session["messages"].sort(
-            key=lambda entry: entry[2] if entry[2] is not None else datetime.min
-        )
-
-    return sessions
-
-
-@app.get("/sessions/", response_model=List[SessionResponse])
-@app.get("/sessions", response_model=List[SessionResponse])
-@app.get("/api/sessions/", response_model=List[SessionResponse])
-@app.get("/api/sessions", response_model=List[SessionResponse])
-def list_sessions(user_id: int):
-    if user_id is None:
-        raise HTTPException(status_code=400, detail="user_id is required.")
-
-    try:
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                    s.session_id,
-                    s.session_name,
-                    d.document_id,
-                    d.document_title
-                FROM sessions s
-                LEFT JOIN sessiondocuments sd ON sd.session_id = s.session_id
-                LEFT JOIN document d ON d.document_id = sd.document_id
-                WHERE s.user_id = %s
-                ORDER BY s.session_id DESC, d.document_id DESC;
-                """,
-                (user_id,),
-            )
-            rows = cur.fetchall()
-
-            if not rows:
-                return []
-
-            return _normalize_session_rows(rows)
-
-    except Exception as db_error:
-        print(f"Failed to load sessions: {db_error}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unable to load sessions: {db_error}",
-        )
-
-
-@app.post("/sessions/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-@app.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-@app.post("/api/sessions/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-@app.post("/api/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-def create_session(payload: SessionCreateRequest):
-    session_name = payload.session_name.strip() if payload.session_name else _default_session_name()
-
-    try:
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO sessions (user_id, session_name)
-                VALUES (%s, %s)
-                RETURNING session_id, session_name;
-                """,
-                (payload.user_id, session_name),
-            )
-            result = cur.fetchone()
-            if not result:
-                raise Exception("Failed to create session.")
-
-            session_id, created_name = result
-
-        return {
-            "session_id": session_id,
-            "session_name": created_name,
-            "documents": [],
-        }
-
-    except Exception as db_error:
-        print(f"Failed to create session: {db_error}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unable to create session: {db_error}",
-        )
-
 
 @app.post("/upload/", status_code=status.HTTP_200_OK)
 async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] = None):
@@ -375,7 +178,7 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
             print("All vectors uploaded successfully.")
 
             session_name = generate_session_name(file.filename)
-
+            session_exists = False
             if(session_id is None):
 
                 cur.execute(
@@ -388,15 +191,8 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                     raise Exception("Failed to retrieve session ID.")
 
                 session_id = sessionResult[0]
+                session_exists = True
                 print(f"Session created with ID: {session_id}")
-                cur.execute(
-                    "INSERT INTO sessiondocuments (session_id, document_id) VALUES (%s, %s) RETURNING id;",
-                    (session_id, document_id)
-                )
-                sessionDocumentResult = cur.fetchone()
-
-                if not sessionDocumentResult:
-                    raise Exception("Failed to create sessionDocument entry after session creation.")
 
             else:
                 cur.execute(
@@ -405,22 +201,23 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 )
                 session_exists = cur.fetchone()[0]
 
-                if session_exists:
-                    cur.execute(
-                        "INSERT INTO sessiondocuments (session_id, document_id) VALUES (%s, %s) RETURNING id;",
-                        (session_id, document_id)
-                    )
+            if session_exists:
+                cur.execute(
+                    "INSERT INTO sessiondocuments (session_id, document_id) VALUES (%s, %s) RETURNING id;",
+                    (session_id, document_id)
+                )
 
-                    sessionDocumentResult = cur.fetchone()
+                sessionDocumentResult = cur.fetchone()
+                sessionDoc_id = sessionDocumentResult[0]
+                print(f"SessionDocument entry created with ID: {sessionDoc_id}")
 
-                    if not sessionDocumentResult:
-                        raise Exception("Failed to create sessionDocument entry after session creation.")
+                if not sessionDocumentResult:
+                    raise Exception("Failed to create sessionDocument entry after session creation.")
 
-                else:
-                    raise Exception(f"Provided session ID {session_id} is not found in the database.")
+            else:
+                raise Exception(f"Provided session ID {session_id} is not found in the database.")
 
-            sessionDoc_id = sessionDocumentResult[0]
-            print(f"SessionDocument entry created with ID: {sessionDoc_id}")
+
 
             return {
                 "message": "Document uploaded and processed successfully",
@@ -429,8 +226,6 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 "session_name": session_name
             }
 
-    except HTTPException:
-        raise
     except Exception as db_error:
         print(f"Database operation failed: {db_error}")
         raise HTTPException(
@@ -438,186 +233,197 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
             detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
         )
 
-@app.get("/retrieveChatHistory/")
-async def retrieve_chat_history(session_id: Optional[int] = None, user_id: Optional[int] = None):
-    """Fetches chat history for a session or all sessions that belong to a user."""
-
-    if session_id is None and user_id is None:
-        raise HTTPException(status_code=400, detail="Provide either session_id or user_id.")
+@app.get("/retrieveChatHistory/", status_code=status.HTTP_200_OK)
+async def retrieve_chat_history(session_id: int):
+    """Handles chat interaction and remembers conversation history."""
 
     try:
         with get_cursor() as cur:
-            if session_id is not None:
-                cur.execute(
-                    "SELECT user_id, session_name FROM sessions WHERE session_id = %s;",
-                    (session_id,),
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+                    (session_id,)
                 )
-                session_row = cur.fetchone()
-                if not session_row:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Session {session_id} not found.",
-                    )
-
-                session_user_id, session_name = session_row
-                if user_id is not None and session_user_id != user_id:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Session does not belong to the requested user.",
-                    )
-
+            session_exists = cur.fetchone()
+            if session_exists and session_exists[0]:
                 cur.execute(
-                    """
-                    SELECT sender, message, created_at
-                    FROM chat_history
-                    WHERE session_id = %s
-                    ORDER BY created_at ASC;
-                    """,
-                    (session_id,),
+                    "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
+                    (session_id,)
                 )
-                chat_history = cur.fetchall()
-                return {
-                    "session_id": session_id,
-                    "session_name": session_name,
-                    "response": chat_history,
-                }
+                ChatHistory = cur.fetchall()
+                # print(ChatHistory)
 
-            # Only user_id provided: return chat history grouped by session
-            cur.execute(
-                """
-                SELECT
-                    s.session_id,
-                    s.session_name,
-                    ch.sender,
-                    ch.message,
-                    ch.created_at
-                FROM sessions s
-                LEFT JOIN chat_history ch ON ch.session_id = s.session_id
-                WHERE s.user_id = %s
-                ORDER BY s.session_id DESC, ch.created_at ASC;
-                """,
-                (user_id,),
-            )
-            rows = cur.fetchall()
-
-            if not rows:
-                return {"sessions": []}
-
-            sessions = _group_session_history_rows(rows)
-            return {"sessions": sessions}
-
-    except HTTPException:
-        raise
-    except Exception as db_error:
-        print(f"Database operation failed: {db_error}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}",
-        )
-
-def _ensure_session_exists(cur, session_id: int) -> None:
-    cur.execute(
-        "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
-        (session_id,),
-    )
-    session_exists = cur.fetchone()
-    if not (session_exists and session_exists[0]):
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
-
-def _answer_for_question(session_id: int, question: str) -> Dict[str, str]:
-    if not question or not question.strip():
-        raise HTTPException(status_code=400, detail="Question text is required.")
-
-    try:
-        with get_cursor() as cur:
-
-            _ensure_session_exists(cur, session_id)
-
-            cur.execute(
-                "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
-                (session_id,),
-            )
-            chat_history = cur.fetchall()
-
-            formatted_lines = [
-                f"{sender}: {message}"
-                for sender, message, _ in chat_history
-            ]
-            history = "\n".join(formatted_lines)
-
-            cur.execute(
-                "SELECT embedding, chunk_text FROM embeddings e "
-                "LEFT JOIN sessiondocuments sd on sd.session_id = %s "
-                "WHERE e.document_id = sd.document_id;",
-                (session_id,),
-            )
-            index_store = cur.fetchall()
-
-            raw_embeddings = []
-            chunks = []
-
-            for embedding_data, chunk_text in index_store:
-                chunks.append(chunk_text)
-
-                try:
-                    float_list = ast.literal_eval(embedding_data)
-                    vector = np.array(float_list, dtype='float32')
-                    raw_embeddings.append(vector)
-
-                except Exception as e:
-                    print(f"Error converting embedding data to vector: {e}")
-
-            if not raw_embeddings:
-                print("Warning: No embeddings found for this session.")
-                index = None
-                chunks = []
-            else:
-                vectors_matrix = np.vstack(raw_embeddings)
-                dimension = vectors_matrix.shape[1]
-
-                index = IndexFlatL2(dimension)
-                index.add(vectors_matrix)
-
-            results = search_index(question, index, chunks, k=3)
-            context = results[0][0]
-            response = generate_response(question, context, history)
-
-            cur.execute(
-                "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
-                (session_id, 'User', question)
-            )
-
-            cur.execute(
-                "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
-                (session_id, 'Bot', response)
-            )
-
-            return {"response": response}
-
-    except HTTPException:
-        raise
     except Exception as db_error:
         print(f"Database operation failed: {db_error}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
         )
+
+    return {"response": ChatHistory}
 
 @app.post("/ask/", status_code=status.HTTP_200_OK)
-@app.post("/ask", status_code=status.HTTP_200_OK)
-@app.post("/api/ask/", status_code=status.HTTP_200_OK)
-@app.post("/api/ask", status_code=status.HTTP_200_OK)
-async def ask_question_post(payload: AskRequest):
-    """Accepts a JSON payload for a chat question."""
-    return _answer_for_question(payload.session_id, payload.question)
+async def ask_question(request: AskRequest):
+    """Handles chat interaction and remembers conversation history."""
+    session_id = request.session_id
+    question = request.question
 
-@app.get("/ask/", status_code=status.HTTP_200_OK)
-@app.get("/ask", status_code=status.HTTP_200_OK)
-@app.get("/api/ask/", status_code=status.HTTP_200_OK)
-@app.get("/api/ask", status_code=status.HTTP_200_OK)
-async def ask_question_get(session_id: int, question: str):
-    """Supports legacy GET requests with query parameters."""
-    return _answer_for_question(session_id, question)
+    try:
+        with get_cursor() as cur:
+
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+                    (session_id,)
+                )
+            session_exists = cur.fetchone()
+
+            if session_exists and session_exists[0]:
+
+                cur.execute(
+                    "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
+                    (session_id,)
+                )
+
+                ChatHistory = cur.fetchall()
+
+                formatted_lines = []
+
+                for entry in ChatHistory:
+                    sender = entry[0]
+                    message = entry[1]
+                    formatted_line = f"{sender}: {message}"
+
+                    formatted_lines.append(formatted_line)
+
+                history = "\n".join(formatted_lines)
+
+                # print(history)
+
+                cur.execute(
+                    "SELECT embedding, chunk_text FROM embeddings e "
+                    "LEFT JOIN sessiondocuments sd on sd.session_id = %s "
+                    "WHERE e.document_id = sd.document_id;",
+                    (session_id,)
+                )
+
+                index_store = cur.fetchall()
+
+                # print(index_store)
+
+                raw_embeddings = []
+                chunks = []
+
+                for embedding_data, chunk_text in index_store:
+                    chunks.append(chunk_text)
+
+                    try:
+                        float_list = ast.literal_eval(embedding_data)
+                        vector = np.array(float_list, dtype='float32')
+                        raw_embeddings.append(vector)
+
+                    except Exception as e:
+                        print(f"Error converting embedding data to vector: {e}")
+
+                if not raw_embeddings:
+                    print("Warning: No embeddings found for this session.")
+                    index = None
+                    chunks = []
+                else:
+                    vectors_matrix = np.vstack(raw_embeddings)
+                    dimension = vectors_matrix.shape[1]
+
+                    index = IndexFlatL2(dimension)
+                    index.add(vectors_matrix)
+
+                results = search_index(question, index, chunks, k=3)
+                context = results[0][0]
+                response = generate_response(question, context, history)
+
+                # print(f"Context:{context} \nHistory:{history}")
+
+                cur.execute(
+                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                    (session_id, 'User', question)
+                )
+
+                cur.execute(
+                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                    (session_id, 'Bot', response)
+                )
+
+                return {"response": response}
+
+
+    except Exception as db_error:
+
+        print(f"Database operation failed: {db_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+        )
+
+@app.get("/getDocumentsBySession", status_code=status.HTTP_200_OK)
+async def getSessionFiles(session_id: int):
+
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
+                    (session_id,)
+                )
+            session_exists = cur.fetchone()
+            if session_exists and session_exists[0]:
+                cur.execute(
+                    "SELECT d.document_title  "
+                    "FROM sessions s "
+                    "LEFT JOIN sessiondocuments sd ON sd.session_id = s.session_id "
+                    "LEFT JOIN document d ON d.document_id = sd.document_id "
+                    "WHERE s.session_id = %s;",
+                    (session_id,)
+                )
+                document_titles = cur.fetchall()
+                print(document_titles)
+
+    except Exception as db_error:
+        print(f"Database operation failed: {db_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+        )
+
+    return {"documents": document_titles}
+
+@app.get("/getSessionsByUserId", status_code=status.HTTP_200_OK)
+async def getSessions(user_id: int):
+
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM user_login WHERE user_id = %s);",
+                    (user_id,)
+                )
+            session_exists = cur.fetchone()
+            if session_exists and session_exists[0]:
+                cur.execute(
+                    "SELECT s.session_id, s.session_name  "
+                    "FROM sessions s "
+                    "WHERE s.user_id = %s;",
+                    (user_id,)
+                )
+                session_data = cur.fetchall()
+                print(session_data)
+
+
+    except Exception as db_error:
+        print(f"Database operation failed: {db_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+        )
+
+    return {"session_data": session_data}
+
+
+
 
 # @app.get("/generateAudioLesson")
 # async def generate_audio_lesson(
@@ -674,5 +480,9 @@ async def ask_question_get(session_id: int, question: str):
 #         )
 
 
+
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+
