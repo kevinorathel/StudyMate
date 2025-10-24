@@ -126,10 +126,16 @@ function normalizeSession(input: unknown): SessionSummary | null {
   return { id, name, documents };
 }
 
-function normalizeSessions(payload: unknown): SessionSummary[] | null {
-  if (!payload) {
-    return [];
-  }
+async function normalizeSessions(payload: unknown): Promise<SessionSummary[] | null> {
+ if (!payload) {
+  return [];
+ }
+
+ // 💡 Await the new async normalization function
+ const arrayFormatSessions = await normalizeSessionsFromArray(payload);
+ if (arrayFormatSessions !== null) {
+  return arrayFormatSessions;
+ }
 
   if (Array.isArray(payload)) {
     return payload
@@ -160,14 +166,104 @@ function normalizeSessions(payload: unknown): SessionSummary[] | null {
   return null;
 }
 
+async function normalizeSessionsFromArray(payload: unknown): Promise<SessionSummary[] | null> {
+  // Check if the payload has the expected object structure
+  if (!payload || typeof payload !== "object") {
+     return null;
+  }
+
+ const record = payload as Record<string, unknown>;
+ const sessionData = record.session_data;
+
+ if (!Array.isArray(sessionData)) {
+   return null;
+ }
+
+ const sessionPromises = sessionData.map(async (item) => {
+  if (Array.isArray(item) && item.length >= 2) {
+   const rawId = item[0];
+   const rawName = item[1];
+
+   const id = toNumber(rawId);
+   const name = typeof rawName === "string" ? rawName : `Session ${id}`;
+
+   if (id !== null) {
+    // 💡 Call the new document fetching API for each session
+    const documents = await fetchDocuments(id);
+
+    return { id, name, documents } as SessionSummary;
+   }
+  }
+  return null;
+  });
+
+ // Wait for all document fetching promises to resolve
+ const sessions = (await Promise.all(sessionPromises)).filter(
+  (item): item is SessionSummary => item !== null
+ );
+
+ return sessions.length > 0 ? sessions : null;
+}
+
+function normalizeDocumentsFromArray(payload: unknown): SessionDocument[] {
+ if (!payload || typeof payload !== "object") {
+   return [];
+ }
+
+ const record = payload as Record<string, unknown>;
+ const rawDocuments = record.documents;
+
+ if (!Array.isArray(rawDocuments)) {
+ return [];
+ }
+
+ const documents: SessionDocument[] = [];
+  let index = 1;
+
+ for (const item of rawDocuments) {
+
+    if (Array.isArray(item) && typeof item[0] === 'string') {
+      documents.push({
+        id: index++,
+        title: item[0],
+     });
+     }
+ }
+
+ return documents;
+}
+
+export async function fetchDocuments(sessionId: number): Promise<SessionDocument[]> {
+ if (!Number.isFinite(sessionId)) {
+  return [];
+ }
+
+ const url = `${API_BASE_URL}/getDocumentsBySession?session_id=${sessionId}`;
+
+ try {
+  const response = await fetch(url);
+  if (!response.ok) {
+   console.error(`Failed to fetch documents for session ${sessionId}: ${response.status}`);
+   return [];
+  }
+
+  const payload = await response.json();
+  return normalizeDocumentsFromArray(payload);
+ } catch (error) {
+  console.error(`Error fetching documents for session ${sessionId}: ${(error as Error).message}`);
+  return [];
+ }
+}
+
 export async function fetchSessions(
-  userId: number
+ userId: number
 ): Promise<SessionSummary[]> {
   if (!Number.isFinite(userId)) {
     throw new Error("A valid numeric user id is required to load sessions.");
   }
 
   const candidates = [
+    `${API_BASE_URL}/getSessionsByUserId?user_id=${userId}`,
     `${API_BASE_URL}/sessions/?user_id=${userId}`,
     `${API_BASE_URL}/sessions?user_id=${userId}`,
     `${API_BASE_URL}/api/sessions/?user_id=${userId}`,
@@ -190,7 +286,7 @@ export async function fetchSessions(
       }
 
       const payload = await response.json();
-      const sessions = normalizeSessions(payload);
+      const sessions = await normalizeSessions(payload);
       if (sessions !== null) {
         return sessions;
       }
