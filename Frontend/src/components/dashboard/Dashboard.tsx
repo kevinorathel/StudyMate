@@ -309,7 +309,7 @@ export default function Dashboard() {
     fileInputRef.current?.click();
   }, [isUploading, userId, sessions.length, selectedSessionId]);
 
-  const handleCreateSessionClick = React.useCallback(async () => {
+  const handleCreateSessionClick = React.useCallback(() => {
     if (userId === null) {
       window.alert(
         "We couldn't determine your account. Please sign out and sign back in."
@@ -317,38 +317,20 @@ export default function Dashboard() {
       return;
     }
 
-    setIsCreatingSession(true);
-    try {
-      const newSession = await createSession({
-        userId,
-      });
+    const tempSessionId = Date.now() * -1; // Generate a unique negative ID for client-side only
+    const tempSession: SessionSummary = {
+      id: tempSessionId,
+      name: "New Session (unsaved)", // Placeholder name
+      documents: [], // No documents initially
+    };
 
-      setSessions((prev) => {
-        const filtered = prev.filter((session) => session.id !== newSession.id);
-        return [newSession, ...filtered];
-      });
-      setSelectedSessionId(newSession.id);
-      setMessagesBySession((prev) => ({
-        ...prev,
-        [newSession.id]: prev[newSession.id] ?? [],
-      }));
-      await refreshSessions({
-        selectSessionId: newSession.id,
-        silent: true,
-      });
-      window.alert(
-        "Session created. Upload notebooks from the sidebar to start chatting. We'll name it automatically once you add a document."
-      );
-    } catch (error) {
-      console.error("Failed to create session:", error);
-      window.alert(
-        (error as Error).message ||
-          "We could not create a session. Please try again."
-      );
-    } finally {
-      setIsCreatingSession(false);
-    }
-  }, [userId, refreshSessions]);
+    setSessions((prev) => [tempSession, ...prev]); // Add to the beginning of sessions
+    setSelectedSessionId(tempSessionId);
+    setMessagesBySession((prev) => ({
+      ...prev,
+      [tempSessionId]: [], // Clear chat history for this temp session
+    }));
+  }, [userId]);
 
   const handleFileSelection = React.useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,19 +368,24 @@ export default function Dashboard() {
       let resultingSessionId: number | null = selectedSessionId;
 
       try {
-        let currentSessionId: number | undefined =
-          selectedSessionId ?? undefined;
+        // Determine the session ID to use for the upload.
+        // If selectedSessionId is a temporary client-side ID (negative),
+        // we pass undefined to uploadDocument to create a new backend session.
+        let currentSessionIdForUpload: number | undefined = undefined;
+        if (selectedSessionId !== null && selectedSessionId > 0) {
+          currentSessionIdForUpload = selectedSessionId;
+        }
 
         for (const file of validFiles) {
           try {
             const uploadResult = await uploadDocument({
               file,
               userId,
-              sessionId: currentSessionId,
+              sessionId: currentSessionIdForUpload,
             });
             const sessionIdFromUpload = Number(uploadResult.session_id);
             if (Number.isFinite(sessionIdFromUpload)) {
-              currentSessionId = sessionIdFromUpload;
+              currentSessionIdForUpload = sessionIdFromUpload; // Update for subsequent uploads in the same batch
               resultingSessionId = sessionIdFromUpload;
             }
           } catch (error) {
@@ -410,6 +397,10 @@ export default function Dashboard() {
         const successfulUploads = validFiles.length - failedUploads.length;
 
         if (resultingSessionId != null && successfulUploads > 0) {
+          // If a temporary session was active, remove it from the state
+          if (selectedSessionId !== null && selectedSessionId < 0) {
+            setSessions((prev) => prev.filter((s) => s.id !== selectedSessionId));
+          }
           setSelectedSessionId(resultingSessionId);
           setMessagesBySession((prev) => ({
             ...prev,
