@@ -1,4 +1,5 @@
 import os
+import shutil
 import urllib.parse
 import pytesseract
 from pdf2image import convert_from_path
@@ -43,7 +44,7 @@ def read_scanned_pdf_with_chunks(file_path, dpi=300, chunk_size=200, overlap=50)
     except Exception as e:
         return [f"Error reading scanned PDF: {e}"]
 
-def generate_script(summary):
+def generate_initial_script(summary):
     prompt = f"""
         You are an expert AI Tutor creating a short, engaging audio lesson script for students.    
         Your task is to take a textbook summary and transform it into a script that sounds natural, conversational, and energetic when read aloud.
@@ -56,6 +57,7 @@ def generate_script(summary):
         1. Persona: Enthusiastic, knowledgeable tutor.
         2. Tone: Conversational, encouraging, and clear (like a popular education podcast).   
         3. Delivery Goal: Make the content feel easy to understand and memorable. Use natural speaking patterns, including conversational transition phrases.
+        4. Size: The script must be brief. It should not cross the limit of 5000 bytes.
 
         Output Script Structure:
         
@@ -67,8 +69,41 @@ def generate_script(summary):
         
         **DO NOT** use bullet points, asterisks, or headings (like 'Section Title' or 'Key Ideas') in the final script, as these disrupt spoken flow. Present the final script as a single, smooth block of text.
         
+        """
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt
+    )
+
+    return response.text.strip().replace('*', '')
+
+def generate_continued_script(summary):
+    prompt = f"""
+        You are an expert AI Tutor creating a short, engaging audio lesson script for students.    
+        Your task is to take a textbook summary and transform it into a script that sounds natural, conversational, and energetic when read aloud.
+        
+        Input Summary:  
+        {summary}
+        
+        Tone and Style Requirements:
+        
+        1. Persona: Enthusiastic, knowledgeable tutor.
+        2. Tone: Conversational, encouraging, and clear (like a popular education podcast).   
+        3. Delivery Goal: Make the content feel easy to understand and memorable. Use natural speaking patterns, including conversational transition phrases.
+        4. Continuity: The script must be as if you are continuing from somewhere you left off
+        5. Size: The script must be brief. It should not cross the limit of 5000 bytes.
+
+        Output Script Structure:
+        
+        Structure the script into three distinct sections and use the following formatting to ensure smooth text-to-speech generation:
+        
+        - [Core Explanation]: Break down the "Key Ideas" and "Explanation" from the summary. Use casual transition words (e.g., "So," "Think of it this way," "The main takeaway here is") to connect points smoothly. Define all technical terms simply. You can also add pauses to make it feel more human.
+        - [Quick Review & Call to Action]: End with a quick, memorable summary sentence and an encouraging closing statement. (1-2 sentences)
+        
+        **DO NOT** use bullet points, asterisks, or headings (like 'Section Title' or 'Key Ideas') in the final script, as these disrupt spoken flow. Present the final script as a single, smooth block of text.
+        
         Format the output in valid SSML for Google Cloud Text-to-Speech.
-        Include natural pauses (<break/>), occasional fillers like "uhm",
+        Include natural pauses (<break/>),
         and some emphasis (<emphasis>) where appropriate.
         """
     response = client.models.generate_content(
@@ -94,6 +129,16 @@ def generate_mp3_title(script):
         )
         title = response.text.strip().replace('"', '').replace("'", "")
         return ''.join(c for c in title if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+
+def cleanup_directory(directory_path: str):
+    """Deletes a directory and all its contents."""
+    print(f"Running background cleanup for: {directory_path}")
+    try:
+        # Use shutil.rmtree to delete the directory and all files within it
+        shutil.rmtree(directory_path)
+        print(f"Successfully cleaned up temporary directory: {directory_path}")
+    except OSError as e:
+        print(f"Error during cleanup of {directory_path}: {e}")
 
 def summarize_chunk(chunk):
     prompt = f"""
@@ -166,53 +211,53 @@ def text_to_speech(text, audio_file, voice_name='en-US-Wavenet-I'):
 
     print(f"Audio content successfully saved to {audio_file}")
 
-def audiogenmain(file_path: str):
-
-    OUTPUT_DIR = "Audio Lessons"
-
-    if not os.path.exists(OUTPUT_DIR):
-
-        os.makedirs(OUTPUT_DIR)
-        print(f"Created output directory: {OUTPUT_DIR}")
-
-    chunks = read_scanned_pdf_with_chunks(file_path)
-    print(f"Total chunks extracted: {len(chunks)}")
-
-    for i, chunk in enumerate(chunks[:1]):
-
-        print(f"\n=== Processing Chunk {i+1} ===\n")
-        summary = summarize_chunk(chunk)
-        script = generate_script(summary)
-        print("Script: \n", script)
-
-        base_filename = f"lesson_chunk_{i+1}.mp3"
-
-        audio_file = os.path.join(OUTPUT_DIR, base_filename)
-
-        text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
-
-if __name__ == "__main__":
-
-    file_path = r"C:\Users\kevin\OneDrive\Desktop\College\Clark U\Design and Analysis of Algorithms\Chapter 1\1.2 Fundamentals of Algorithmic problem solving.pdf"
-    OUTPUT_DIR = "Audio Lessons"
-
-    if not os.path.exists(OUTPUT_DIR):
-
-        os.makedirs(OUTPUT_DIR)
-        print(f"Created output directory: {OUTPUT_DIR}")
-
-    chunks = read_scanned_pdf_with_chunks(file_path)
-    print(f"Total chunks extracted: {len(chunks)}")
-
-    for i, chunk in enumerate(chunks[:1]):
-
-        print(f"\n=== Processing Chunk {i+1} ===\n")
-        summary = summarize_chunk(chunk)
-        script = generate_script(summary)
-        print("Script: \n", script)
-
-        base_filename = f"lesson_chunk_{i+1}.mp3"
-
-        audio_file = os.path.join(OUTPUT_DIR, base_filename)
-
-        text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
+# def audiogenmain(file_path: str):
+#
+#     OUTPUT_DIR = "Audio Lessons"
+#
+#     if not os.path.exists(OUTPUT_DIR):
+#
+#         os.makedirs(OUTPUT_DIR)
+#         print(f"Created output directory: {OUTPUT_DIR}")
+#
+#     chunks = read_scanned_pdf_with_chunks(file_path)
+#     print(f"Total chunks extracted: {len(chunks)}")
+#
+#     for i, chunk in enumerate(chunks[:1]):
+#
+#         print(f"\n=== Processing Chunk {i+1} ===\n")
+#         summary = summarize_chunk(chunk)
+#         script = generate_script(summary)
+#         print("Script: \n", script)
+#
+#         base_filename = f"lesson_chunk_{i+1}.mp3"
+#
+#         audio_file = os.path.join(OUTPUT_DIR, base_filename)
+#
+#         text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
+#
+# if __name__ == "__main__":
+#
+#     file_path = r"C:\Users\kevin\OneDrive\Desktop\College\Clark U\Design and Analysis of Algorithms\Chapter 1\1.2 Fundamentals of Algorithmic problem solving.pdf"
+#     OUTPUT_DIR = "Audio Lessons"
+#
+#     if not os.path.exists(OUTPUT_DIR):
+#
+#         os.makedirs(OUTPUT_DIR)
+#         print(f"Created output directory: {OUTPUT_DIR}")
+#
+#     chunks = read_scanned_pdf_with_chunks(file_path)
+#     print(f"Total chunks extracted: {len(chunks)}")
+#
+#     for i, chunk in enumerate(chunks[:1]):
+#
+#         print(f"\n=== Processing Chunk {i+1} ===\n")
+#         summary = summarize_chunk(chunk)
+#         script = generate_script(summary)
+#         print("Script: \n", script)
+#
+#         base_filename = f"lesson_chunk_{i+1}.mp3"
+#
+#         audio_file = os.path.join(OUTPUT_DIR, base_filename)
+#
+#         text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')

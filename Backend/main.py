@@ -1,4 +1,5 @@
 import ast
+import shutil
 from typing import Optional
 
 import numpy as np
@@ -8,13 +9,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import uvicorn
 import os
+from pydub import AudioSegment
+import glob
 
 from rest_framework import status
+from starlette.background import BackgroundTask
+from starlette.responses import JSONResponse, FileResponse
 
 from dbconnect import get_cursor
 import bcrypt
 from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
-#from AudioGen import audiogenmain
+from AudioGen import summarize_chunk, generate_continued_script, generate_initial_script, text_to_speech, \
+    cleanup_directory
 
 from fastapi import APIRouter
 
@@ -53,20 +59,16 @@ def signup_user(payload: SignupRequest):
     try:
         with get_cursor() as cur:
 
-            # Split full name into first/last
             full_name = payload.full_name.strip()
             first_name, last_name = (full_name.split(" ", 1) + [""])[:2]
 
-            # Check if email already exists
             cur.execute("SELECT user_id FROM user_login WHERE email = %s", (payload.email,))
             existing_user = cur.fetchone()
             if existing_user:
                 raise HTTPException(status_code=400, detail="Email already registered")
 
-            # Hash password before storing
             hashed_pw = bcrypt.hashpw(payload.password.encode('utf-8'), bcrypt.gensalt())
 
-            # Insert user record
             cur.execute(
                 """
                 INSERT INTO user_login (first_name, last_name, email, pwd, is_verified)
@@ -76,11 +78,9 @@ def signup_user(payload: SignupRequest):
                 (first_name, last_name, payload.email, hashed_pw.decode('utf-8'), False)
             )
 
-            # conn.commit()
             user_id = cur.fetchone()[0]
 
             cur.close()
-            # conn.close()
 
             return {"message": "User registered successfully", "user_id": user_id}
 
@@ -421,62 +421,113 @@ async def getSessions(user_id: int):
 
     return {"session_data": session_data}
 
+@app.get("/generateAudioLesson", status_code=status.HTTP_200_OK)
+async def generate_audio_lesson(session_id: int):
+    """
+    Processes a scanned PDF, generates multiple MP3 audio lessons,
+    and returns them bundled as a single ZIP file.
+    """
+
+    OUTPUT_DIR = "Audio Lessons"
+    FILLER_AUDIO_PATH = "misc/page-flip.mp3"
+
+    if not os.path.exists(OUTPUT_DIR):
+
+        os.makedirs(OUTPUT_DIR)
+        print(f"Created output directory: {OUTPUT_DIR}")
+
+    try:
+        with get_cursor() as cur:
+
+            cur.execute(
+                "SELECT e.chunk_text " 
+                "FROM embeddings e "
+                "LEFT JOIN sessiondocuments sd ON sd.document_id  = e.document_id "
+                "WHERE sd.session_id = %s;",
+                (session_id,)
+            )
+            session_chunks = cur.fetchall()
+
+            for i, chunk in enumerate(session_chunks):
+
+                print(f"\nProcessing Chunk {i+1} of {len(session_chunks)}")
+                summary = summarize_chunk(chunk)
+                if(i == 0):
+                    script = generate_initial_script(summary)
+                else:
+                    script = generate_continued_script(summary)
+
+                base_filename = f"{i+1}.mp3"
+
+                audio_file = os.path.join(OUTPUT_DIR, base_filename)
+
+                text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
+
+            print("\nAudios generated for individual chunks! ",)
+
+            cur.execute(
+                "SELECT s.session_name "
+                "FROM sessions s "
+                "WHERE s.session_id = %s;",
+                (session_id,)
+            )
+            session_name = cur.fetchone()
+            if session_name:
+                audiofile_name = session_name[0]
+            else:
+                audiofile_name = None
+            FINAL_AUDIO_FILENAME = f"{audiofile_name}.mp3"
+
+            file_paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*.mp3")),
+                    key=lambda x: int(os.path.basename(x).split('.')[0]))
+
+            combined_audio = AudioSegment.empty()
+
+            print(f"\nStitching {len(file_paths)} individual audio files...")
+
+            if not os.path.exists(FILLER_AUDIO_PATH):
+                print(f"ERROR: Filler audio not found at {FILLER_AUDIO_PATH}")
+                filler_audio = AudioSegment.empty()
+            else:
+                filler_audio = AudioSegment.from_mp3(FILLER_AUDIO_PATH)
+
+            for i, file_path in enumerate(file_paths):
+                print(f"Adding: {os.path.basename(file_path)}")
+
+                chunk_audio = AudioSegment.from_mp3(file_path)
+
+                combined_audio += chunk_audio
+
+                if i < len(file_paths) - 1:
+                    combined_audio += filler_audio
+                    print("   - Added filler audio (page-flip).")
+
+            final_output_path = os.path.join(OUTPUT_DIR, FINAL_AUDIO_FILENAME)
+
+            combined_audio.export(final_output_path, format="mp3")
+
+            print(f"\nAll audios successfully stitched into: {final_output_path}")
 
 
+            file_to_return = final_output_path
 
-# @app.get("/generateAudioLesson")
-# async def generate_audio_lesson(
-#     file_path: str = Query(..., description="The full, URL-encoded path to the scanned PDF file.")
-# ):
-#     """
-#     Processes a scanned PDF, generates multiple MP3 audio lessons,
-#     and returns them bundled as a single ZIP file.
-#     """
-#     if not audiogenmain:
-#         return JSONResponse(
-#             status_code=500,
-#             content={"status": "error", "message": "Audio generation module failed to load. Check server logs."}
-#         )
-#
-#     print(f"Received request for file_path: {file_path}")
-#
-#     try:
-#         # Run the core logic, which now returns ZIP binary data and filename
-#         zip_bytes, output_zip_filename = audiogenmain(file_path)
-#
-#         # Use io.BytesIO to create a file-like object from the binary data
-#         zip_file_like = io.BytesIO(zip_bytes)
-#
-#         # Return a StreamingResponse to stream the ZIP file to the client
-#         return StreamingResponse(
-#             zip_file_like,
-#             media_type="application/zip",
-#             headers={
-#                 "Content-Disposition": f"attachment; filename={output_zip_filename}",
-#                 "Content-Length": str(len(zip_bytes))
-#             }
-#         )
-#
-#     except ConnectionError as e:
-#         # Handle TTS client initialization failure
-#         return JSONResponse(
-#             status_code=503,
-#             content={"status": "error", "message": f"Service unavailable: {str(e)}"}
-#         )
-#
-#     except ValueError as e:
-#         # Handle errors from PDF reading/chunking
-#         return JSONResponse(
-#             status_code=400,
-#             content={"status": "error", "message": f"PDF processing error: {str(e)}"}
-#         )
-#
-#     except Exception as e:
-#         # Catch any other unexpected errors
-#         return JSONResponse(
-#             status_code=500,
-#             content={"status": "error", "message": f"An unexpected server error occurred: {str(e)}"}
-#         )
+            return FileResponse(
+                path=file_to_return,
+                filename=FINAL_AUDIO_FILENAME,
+                media_type="audio/mpeg",
+                background=BackgroundTask(cleanup_directory, OUTPUT_DIR)
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Audio generation failed.")
+
+    finally:
+        if file_to_return is None and os.path.exists(OUTPUT_DIR):
+            print(f"Error occurred. Attempting cleanup of {OUTPUT_DIR}...")
+            shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 
