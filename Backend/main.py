@@ -29,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#Pydantic models for request validation
 class SignupRequest(BaseModel):
     full_name: str
     email: EmailStr
