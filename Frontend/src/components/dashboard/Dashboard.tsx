@@ -21,6 +21,7 @@ import {
 } from "@/api/chat";
 import { useAuth } from "@/context/AuthContext";
 import { Send, MessageSquare } from "lucide-react";
+import { Loader } from "@/components/ui/loader";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
@@ -425,7 +426,7 @@ export default function Dashboard() {
           );
         } else {
           window.alert(
-            "Your document is being processed. You can continue in the dashboard."
+            "Your document has been processed successfully!"
           );
         }
       } catch (error) {
@@ -570,7 +571,7 @@ export default function Dashboard() {
         onChange={handleFileSelection}
       />
 
-      <main className="flex h-[calc(100vh-64px)] gap-4 p-4">
+      <main className="flex h-[calc(100vh-114px)] gap-4 p-4">
         <div className="w-64 space-y-4">
           <Card className="h-fit rounded-2xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <CardHeader className="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
@@ -625,7 +626,7 @@ export default function Dashboard() {
         </div>
 
         <div className="flex flex-1 flex-col space-y-4">
-          <Card className="flex flex-1 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <Card className="flex flex-1 flex-col h-full rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <CardHeader className="border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 <MessageSquare className="h-4 w-4 text-blue-500" />
@@ -638,10 +639,10 @@ export default function Dashboard() {
               ) : null}
             </CardHeader>
 
-            <CardContent className="flex flex-1 flex-col gap-4 px-5 pb-5 pt-4">
+            <CardContent className="flex flex-1 flex-col h-full gap-4 px-5 pb-5 pt-4">
               <div
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto space-y-3 rounded-xl border border-zinc-200 bg-[#f7f8fc] p-3 dark:border-zinc-700 dark:bg-[#161821]"
+                className="h-[400px] overflow-y-auto space-y-3 rounded-xl border border-zinc-200 bg-[#f7f8fc] p-3 dark:border-zinc-700 dark:bg-[#161821] min-h-0"
               >
                 {!hasSessions ? (
                   <p className="text-sm text-muted-foreground">
@@ -832,6 +833,8 @@ export default function Dashboard() {
           </div>
         </aside>
       </main>
+
+      <Loader isLoading={isUploading} />
     </div>
   );
 }
