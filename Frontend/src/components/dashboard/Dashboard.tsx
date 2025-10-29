@@ -29,7 +29,6 @@ const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
 const QUICK_PROMPTS = [
   "Summarize key ideas",
-  "What should I study next?",
   "Create 5 flashcards",
 ];
 
@@ -320,11 +319,11 @@ export default function Dashboard() {
       return;
     }
 
-    const tempSessionId = Date.now() * -1; // Generate a unique negative ID for client-side only
+    const tempSessionId = Date.now() * -1; 
     const tempSession: SessionSummary = {
       id: tempSessionId,
-      name: "New Session (unsaved)", // Placeholder name
-      documents: [], // No documents initially
+      name: "New Session", 
+      documents: [], 
     };
 
     setSessions((prev) => [tempSession, ...prev]); // Add to the beginning of sessions
