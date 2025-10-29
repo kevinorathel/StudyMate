@@ -21,6 +21,9 @@ import {
 } from "@/api/chat";
 import { useAuth } from "@/context/AuthContext";
 import { Send, MessageSquare } from "lucide-react";
+import { Loader } from "@/components/ui/loader";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
@@ -309,7 +312,7 @@ export default function Dashboard() {
     fileInputRef.current?.click();
   }, [isUploading, userId, sessions.length, selectedSessionId]);
 
-  const handleCreateSessionClick = React.useCallback(async () => {
+  const handleCreateSessionClick = React.useCallback(() => {
     if (userId === null) {
       window.alert(
         "We couldn't determine your account. Please sign out and sign back in."
@@ -317,38 +320,20 @@ export default function Dashboard() {
       return;
     }
 
-    setIsCreatingSession(true);
-    try {
-      const newSession = await createSession({
-        userId,
-      });
+    const tempSessionId = Date.now() * -1; // Generate a unique negative ID for client-side only
+    const tempSession: SessionSummary = {
+      id: tempSessionId,
+      name: "New Session (unsaved)", // Placeholder name
+      documents: [], // No documents initially
+    };
 
-      setSessions((prev) => {
-        const filtered = prev.filter((session) => session.id !== newSession.id);
-        return [newSession, ...filtered];
-      });
-      setSelectedSessionId(newSession.id);
-      setMessagesBySession((prev) => ({
-        ...prev,
-        [newSession.id]: prev[newSession.id] ?? [],
-      }));
-      await refreshSessions({
-        selectSessionId: newSession.id,
-        silent: true,
-      });
-      window.alert(
-        "Session created. Upload notebooks from the sidebar to start chatting. We'll name it automatically once you add a document."
-      );
-    } catch (error) {
-      console.error("Failed to create session:", error);
-      window.alert(
-        (error as Error).message ||
-          "We could not create a session. Please try again."
-      );
-    } finally {
-      setIsCreatingSession(false);
-    }
-  }, [userId, refreshSessions]);
+    setSessions((prev) => [tempSession, ...prev]); // Add to the beginning of sessions
+    setSelectedSessionId(tempSessionId);
+    setMessagesBySession((prev) => ({
+      ...prev,
+      [tempSessionId]: [], // Clear chat history for this temp session
+    }));
+  }, [userId]);
 
   const handleFileSelection = React.useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,19 +371,24 @@ export default function Dashboard() {
       let resultingSessionId: number | null = selectedSessionId;
 
       try {
-        let currentSessionId: number | undefined =
-          selectedSessionId ?? undefined;
+        // Determine the session ID to use for the upload.
+        // If selectedSessionId is a temporary client-side ID (negative),
+        // we pass undefined to uploadDocument to create a new backend session.
+        let currentSessionIdForUpload: number | undefined = undefined;
+        if (selectedSessionId !== null && selectedSessionId > 0) {
+          currentSessionIdForUpload = selectedSessionId;
+        }
 
         for (const file of validFiles) {
           try {
             const uploadResult = await uploadDocument({
               file,
               userId,
-              sessionId: currentSessionId,
+              sessionId: currentSessionIdForUpload,
             });
             const sessionIdFromUpload = Number(uploadResult.session_id);
             if (Number.isFinite(sessionIdFromUpload)) {
-              currentSessionId = sessionIdFromUpload;
+              currentSessionIdForUpload = sessionIdFromUpload; // Update for subsequent uploads in the same batch
               resultingSessionId = sessionIdFromUpload;
             }
           } catch (error) {
@@ -410,6 +400,10 @@ export default function Dashboard() {
         const successfulUploads = validFiles.length - failedUploads.length;
 
         if (resultingSessionId != null && successfulUploads > 0) {
+          // If a temporary session was active, remove it from the state
+          if (selectedSessionId !== null && selectedSessionId < 0) {
+            setSessions((prev) => prev.filter((s) => s.id !== selectedSessionId));
+          }
           setSelectedSessionId(resultingSessionId);
           setMessagesBySession((prev) => ({
             ...prev,
@@ -434,7 +428,7 @@ export default function Dashboard() {
           );
         } else {
           window.alert(
-            "Your document is being processed. You can continue in the dashboard."
+            "Your document has been processed successfully!"
           );
         }
       } catch (error) {
@@ -579,7 +573,7 @@ export default function Dashboard() {
         onChange={handleFileSelection}
       />
 
-      <main className="flex h-[calc(100vh-64px)] gap-4 p-4">
+      <main className="flex h-[calc(100vh-114px)] gap-4 p-4">
         <div className="w-64 space-y-4">
           <Card className="h-fit rounded-2xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <CardHeader className="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
@@ -634,7 +628,7 @@ export default function Dashboard() {
         </div>
 
         <div className="flex flex-1 flex-col space-y-4">
-          <Card className="flex flex-1 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <Card className="flex flex-1 flex-col h-full rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <CardHeader className="border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 <MessageSquare className="h-4 w-4 text-blue-500" />
@@ -647,10 +641,10 @@ export default function Dashboard() {
               ) : null}
             </CardHeader>
 
-            <CardContent className="flex flex-1 flex-col gap-4 px-5 pb-5 pt-4">
+            <CardContent className="flex flex-1 flex-col h-full gap-4 px-5 pb-5 pt-4">
               <div
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto space-y-3 rounded-xl border border-zinc-200 bg-[#f7f8fc] p-3 dark:border-zinc-700 dark:bg-[#161821]"
+                className="h-[400px] overflow-y-auto space-y-3 rounded-xl border border-zinc-200 bg-[#f7f8fc] p-3 dark:border-zinc-700 dark:bg-[#161821] min-h-0"
               >
                 {!hasSessions ? (
                   <p className="text-sm text-muted-foreground">
@@ -696,7 +690,9 @@ export default function Dashboard() {
                             : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
                         )}
                       >
-                        {message.text}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.text}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   ))
@@ -841,6 +837,8 @@ export default function Dashboard() {
           </div>
         </aside>
       </main>
+
+      <Loader isLoading={isUploading} />
     </div>
   );
 }
