@@ -22,6 +22,8 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { Send, MessageSquare } from "lucide-react";
 import { Loader } from "@/components/ui/loader";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
@@ -688,7 +690,9 @@ export default function Dashboard() {
                             : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
                         )}
                       >
-                        {message.text}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.text}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   ))
