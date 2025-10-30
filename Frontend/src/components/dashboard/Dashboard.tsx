@@ -24,6 +24,7 @@ import { Send, MessageSquare } from "lucide-react";
 import { Loader } from "@/components/ui/loader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { generateAudioLesson } from "@/api/audio";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
@@ -119,6 +120,8 @@ export default function Dashboard() {
 
   const [isUploading, setIsUploading] = React.useState(false);
   const [isCreatingSession, setIsCreatingSession] = React.useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
+  const [audioError, setAudioError] = React.useState<string | null>(null);
 
   const [notesBySession, setNotesBySession] =
     React.useState<NotesBySession>(loadNotesFromStorage);
@@ -753,12 +756,12 @@ export default function Dashboard() {
         </div>
 
         <aside className="w-[320px] flex flex-col bg-[#fafafa] dark:bg-[#111112] border-l border-zinc-100/70 dark:border-zinc-800 overflow-y-auto">
-          <div className="px-5 pt-5 pb-4 border-b border-zinc-100/60 dark:border-zinc-800/60">
+          <div className="px-5 pt-5 pb-4 border-b rounded border-zinc-100/60 dark:border-zinc-800/60">
             <h2 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">
               Studio
             </h2>
             <p className="text-[12px] text-zinc-500 dark:text-zinc-400 mb-3">
-              Create new content views powered by your session files
+              Create new content powered by your session files
             </p>
 
             <div className="grid grid-cols-2 gap-3">
@@ -768,6 +771,24 @@ export default function Dashboard() {
                   icon: "💡",
                   color:
                     "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+                  onClick: async () => {
+                    if (selectedSessionId === null) {
+                      window.alert("Please select a session first.");
+                      return;
+                    }
+                    setIsGeneratingAudio(true);
+                    setAudioError(null);
+                    try {
+                      const audioUrl = await generateAudioLesson(selectedSessionId);
+                      window.alert(`Audio lesson generated: ${audioUrl}`);
+                      // Optionally, you can play the audio or display a link
+                    } catch (error) {
+                      setAudioError((error as Error).message);
+                      window.alert(`Error generating audio: ${(error as Error).message}`);
+                    } finally {
+                      setIsGeneratingAudio(false);
+                    }
+                  },
                 },
                 {
                   label: "Video Overview",
@@ -782,12 +803,6 @@ export default function Dashboard() {
                     "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
                 },
                 {
-                  label: "Outline",
-                  icon: "📘",
-                  color:
-                    "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
-                },
-                {
                   label: "Flashcards",
                   icon: "🧠",
                   color:
@@ -797,13 +812,25 @@ export default function Dashboard() {
                 <button
                   key={tile.label}
                   className={`flex flex-col items-center justify-center gap-1 rounded-xl py-4 text-[13px] font-medium ${tile.color} hover:shadow-sm transition-all`}
-                  onClick={() => window.alert(`${tile.label} is coming soon`)}
+                  onClick={tile.onClick ?? (() => window.alert(`${tile.label} is coming soon`))}
+                  disabled={isGeneratingAudio && tile.label === "Audio Overview"}
                 >
-                  <span className="text-lg">{tile.icon}</span>
-                  <span>{tile.label}</span>
+                  {isGeneratingAudio && tile.label === "Audio Overview" ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
+                  ) : (
+                    <span className="text-lg">{tile.icon}</span>
+                  )}
+                  <span>
+                    {isGeneratingAudio && tile.label === "Audio Overview"
+                      ? "Generating Audio..."
+                      : tile.label}
+                  </span>
                 </button>
               ))}
             </div>
+            {audioError && (
+              <p className="text-xs text-red-500 mt-2">{audioError}</p>
+            )}
           </div>
 
           <div className="px-5 py-5">
@@ -837,6 +864,7 @@ export default function Dashboard() {
         </aside>
       </main>
 
+      {/* The main loader for uploads, etc. */}
       <Loader isLoading={isUploading} />
     </div>
   );

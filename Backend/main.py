@@ -33,6 +33,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"]
 )
 
 class SignupRequest(BaseModel):
@@ -380,7 +381,6 @@ async def getSessionFiles(session_id: int):
                     (session_id,)
                 )
                 document_titles = cur.fetchall()
-                print(document_titles)
 
     except Exception as db_error:
         print(f"Database operation failed: {db_error}")
