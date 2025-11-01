@@ -14,7 +14,7 @@ import glob
 
 from rest_framework import status
 from starlette.background import BackgroundTask
-from starlette.responses import JSONResponse, FileResponse
+from starlette.responses import  FileResponse
 
 from dbconnect import get_cursor
 import bcrypt
@@ -104,7 +104,6 @@ def login_user(payload: LoginRequest):
 
             user_id, stored_hashed_pw = user
 
-            # Verify password
             if not bcrypt.checkpw(payload.password.encode('utf-8'), stored_hashed_pw.encode('utf-8')):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
