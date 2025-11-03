@@ -1,13 +1,11 @@
 import os
 import shutil
 import sys
-from http.client import HTTPException
 
 from google import genai
 from google.genai.types import GenerateContentConfig
 
 from markdown_it import MarkdownIt
-from rest_framework import status
 import re
 from xhtml2pdf import pisa
 from sentence_transformers import SentenceTransformer
@@ -85,13 +83,12 @@ def run_summarization_job(session_id: int, output_dir: str) -> str:
 
     db_connection.update_session_status(session_id, "Processing: Generating PDF Output")
 
-    # FIX: Pass the output_dir to generate_pdf
     pdf_path = generate_pdf(final_summary_markdown, session_id, output_dir)
 
     db_connection.update_session_status(session_id, "Completed")
     notification_service.send_completion_alert(session_id, pdf_path)
 
-    return pdf_path # FIX: Return the path
+    return pdf_path
 
 def generate_llm_summary(context: str, query: str) -> str:
     """
