@@ -1,6 +1,5 @@
 import os
 from dotenv import load_dotenv
-load_dotenv()
 import pytesseract
 import faiss
 from pdf2image import convert_from_path

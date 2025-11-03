@@ -13,8 +13,8 @@ export async function generateAudioLesson(sessionId: number): Promise<string> {
   }
 
   const contentDisposition = response.headers.get('Content-Disposition');
-  let filename = `audio-lesson-${sessionId}.mp3`; // Fallback name
-
+  let filename = `audio-lesson-${sessionId}.mp3`;
+  
   if (contentDisposition) {
       const parts = contentDisposition.split('filename=');
       if (parts.length > 1) {
