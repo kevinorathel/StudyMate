@@ -799,7 +799,7 @@ export default function Dashboard() {
                     "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300",
                 },
                 {
-                  label: "Summary",
+                  label: "Summary Notes",
                   icon: "📝",
                   color:
                     "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
