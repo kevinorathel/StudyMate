@@ -16,13 +16,12 @@ from rest_framework import status
 from starlette.background import BackgroundTask
 from starlette.responses import  FileResponse
 
+from Summarizer import Summarizer_main
 from dbconnect import get_cursor
 import bcrypt
 from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
 from AudioGen import summarize_chunk, generate_continued_script, generate_initial_script, text_to_speech, \
     cleanup_directory
-
-from fastapi import APIRouter
 
 
 app = FastAPI(title="StudyMate API")
@@ -49,7 +48,17 @@ class AskRequest(BaseModel):
     session_id: int
     question: str
 
-
+def cleanup_file_and_dir(file_path: str, dir_path: str):
+    """Deletes the file and the temporary directory."""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        # The file path is guaranteed to be inside the dir_path
+        if os.path.exists(dir_path):
+            shutil.rmtree(dir_path, ignore_errors=True)
+        print(f"Cleaned up temporary summary directory: {dir_path}")
+    except Exception as e:
+        print(f"Error during file cleanup: {e}")
 
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
 def read_root():
@@ -295,8 +304,6 @@ async def ask_question(request: AskRequest):
 
                 history = "\n".join(formatted_lines)
 
-                # print(history)
-
                 cur.execute(
                     "SELECT embedding, chunk_text FROM embeddings e "
                     "LEFT JOIN sessiondocuments sd on sd.session_id = %s "
@@ -305,8 +312,6 @@ async def ask_question(request: AskRequest):
                 )
 
                 index_store = cur.fetchall()
-
-                # print(index_store)
 
                 raw_embeddings = []
                 chunks = []
@@ -336,8 +341,6 @@ async def ask_question(request: AskRequest):
                 results = search_index(question, index, chunks, k=3)
                 context = results[0][0]
                 response = generate_response(question, context, history)
-
-                # print(f"Context:{context} \nHistory:{history}")
 
                 cur.execute(
                     "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
@@ -408,7 +411,6 @@ async def getSessions(user_id: int):
                     (user_id,)
                 )
                 session_data = cur.fetchall()
-                print(session_data)
 
 
     except Exception as db_error:
@@ -528,6 +530,26 @@ async def generate_audio_lesson(session_id: int):
             print(f"Error occurred. Attempting cleanup of {OUTPUT_DIR}...")
             shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
+@app.get("/generateSessionSummary", status_code=status.HTTP_200_OK)
+async def generate_session_summary(session_id: int):
+
+    try:
+        pdf_path = Summarizer_main(session_id)
+
+        file_name = os.path.basename(pdf_path)
+        temp_dir = os.path.dirname(pdf_path)
+
+        return FileResponse(
+            path=pdf_path,
+            filename=file_name,
+            media_type="application/pdf",
+            background=BackgroundTask(cleanup_file_and_dir, pdf_path, temp_dir)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Summary generation failed: {e}"
+        )
 
 
 

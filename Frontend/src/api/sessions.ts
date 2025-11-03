@@ -355,3 +355,60 @@ export async function createSession({
       : "Unable to create session.";
   throw new Error(message);
 }
+
+export async function generateSessionSummary(sessionId: number): Promise<void> {
+  if (!Number.isFinite(sessionId)) {
+    throw new Error("A valid numeric session id is required to generate a summary.");
+  }
+
+  const url = `${API_BASE_URL}/generateSessionSummary?session_id=${sessionId}`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to generate session summary: ${response.status} - ${errorText}`);
+    }
+
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `session_summary_${sessionId}.pdf`; 
+
+    if (contentDisposition) {
+      // Try to parse RFC 6266 compliant filename* first
+      const rfc6266Match = /filename\*=(.+)/.exec(contentDisposition);
+      if (rfc6266Match && rfc6266Match[1]) {
+        let encodedFilename = rfc6266Match[1];
+        // Remove UTF-8'' or utf-8'' if present (case-insensitive)
+        encodedFilename = encodedFilename.replace(/^(?:UTF-8''|utf-8'')/i, '');
+        // Remove any remaining quotes and decode
+        filename = decodeURIComponent(encodedFilename.replace(/^['"]|['"]$/g, ''));
+      } else {
+        // Fallback to RFC 2616 compliant filename
+        const rfc2616Match = /filename="([^"]+)"/.exec(contentDisposition);
+        if (rfc2616Match && rfc2616Match[1]) {
+          filename = rfc2616Match[1];
+        } else {
+          // Fallback for cases where filename is not quoted
+          const unquotedFilenameMatch = /filename=([^;]+)/.exec(contentDisposition);
+          if (unquotedFilenameMatch && unquotedFilenameMatch[1]) {
+            filename = unquotedFilenameMatch[1].trim();
+          }
+        }
+      }
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+
+  } catch (error) {
+    console.error(`Error generating session summary for session ${sessionId}:`, error);
+    throw error;
+  }
+}

@@ -1,5 +1,6 @@
 
 import psycopg2
+from pgvector.psycopg2 import register_vector
 from contextlib import contextmanager
 
 
@@ -13,6 +14,8 @@ def get_cursor():
         port="5432",
         sslmode="require"
     )
+
+
     cur = conn.cursor()
     try:
         yield cur
@@ -20,4 +23,7 @@ def get_cursor():
     finally:
         cur.close()
         conn.close()
+
+
+
 

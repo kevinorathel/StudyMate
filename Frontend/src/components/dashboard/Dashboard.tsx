@@ -9,6 +9,7 @@ import { uploadDocument } from "@/api/uploads";
 import {
   fetchSessions,
   createSession,
+  generateSessionSummary,
   type SessionSummary,
   type SessionDocument,
 } from "@/api/sessions";
@@ -122,6 +123,8 @@ export default function Dashboard() {
   const [isCreatingSession, setIsCreatingSession] = React.useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
   const [audioError, setAudioError] = React.useState<string | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = React.useState(false);
+  const [summaryError, setSummaryError] = React.useState<string | null>(null);
 
   const [notesBySession, setNotesBySession] =
     React.useState<NotesBySession>(loadNotesFromStorage);
@@ -781,7 +784,6 @@ export default function Dashboard() {
                     try {
                       const audioUrl = await generateAudioLesson(selectedSessionId);
                       window.alert(`Audio lesson generated: ${audioUrl}`);
-                      // Optionally, you can play the audio or display a link
                     } catch (error) {
                       setAudioError((error as Error).message);
                       window.alert(`Error generating audio: ${(error as Error).message}`);
@@ -801,6 +803,23 @@ export default function Dashboard() {
                   icon: "📝",
                   color:
                     "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
+                  onClick: async () => {
+                    if (selectedSessionId === null) {
+                      window.alert("Please select a session first.");
+                      return;
+                    }
+                    setIsGeneratingSummary(true);
+                    setSummaryError(null);
+                    try {
+                      await generateSessionSummary(selectedSessionId);
+                      window.alert("Session summary PDF downloaded successfully!");
+                    } catch (error) {
+                      setSummaryError((error as Error).message);
+                      window.alert(`Error generating summary: ${(error as Error).message}`);
+                    } finally {
+                      setIsGeneratingSummary(false);
+                    }
+                  },
                 },
                 {
                   label: "Flashcards",
@@ -813,16 +832,23 @@ export default function Dashboard() {
                   key={tile.label}
                   className={`flex flex-col items-center justify-center gap-1 rounded-xl py-4 text-[13px] font-medium ${tile.color} hover:shadow-sm transition-all`}
                   onClick={tile.onClick ?? (() => window.alert(`${tile.label} is coming soon`))}
-                  disabled={isGeneratingAudio && tile.label === "Audio Overview"}
+                  disabled={
+                    (isGeneratingAudio && tile.label === "Audio Overview") ||
+                    (isGeneratingSummary && tile.label === "Summary")
+                  }
                 >
-                  {isGeneratingAudio && tile.label === "Audio Overview" ? (
+                  {(isGeneratingAudio && tile.label === "Audio Overview") ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
+                  ) : (isGeneratingSummary && tile.label === "Summary") ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
                   ) : (
                     <span className="text-lg">{tile.icon}</span>
                   )}
                   <span>
-                    {isGeneratingAudio && tile.label === "Audio Overview"
+                    {(isGeneratingAudio && tile.label === "Audio Overview")
                       ? "Generating Audio..."
+                      : (isGeneratingSummary && tile.label === "Summary")
+                      ? "Generating Summary..."
                       : tile.label}
                   </span>
                 </button>
@@ -830,6 +856,9 @@ export default function Dashboard() {
             </div>
             {audioError && (
               <p className="text-xs text-red-500 mt-2">{audioError}</p>
+            )}
+            {summaryError && (
+              <p className="text-xs text-red-500 mt-2">{summaryError}</p>
             )}
           </div>
 
