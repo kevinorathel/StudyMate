@@ -11,7 +11,7 @@ import zipfile
 pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_PATH"]
 POPPLER_PATH = os.environ["POPPLER_PATH"]
 API_KEY = os.environ.get("GEMINI_API_KEY")
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-2.5-flash-lite"
 
 client = genai.Client(api_key=API_KEY)
 
@@ -75,7 +75,7 @@ def generate_initial_script(summary):
         contents=prompt
     )
 
-    return response.text.strip().replace('*', '')
+    return response.text.strip().replace('*', '').strip().replace('Intro Hook', '').strip().replace('Core Explanation', '').strip().replace('Quick Review & Call to Action', '')
 
 def generate_continued_script(summary):
     prompt = f"""
@@ -102,16 +102,13 @@ def generate_continued_script(summary):
         
         **DO NOT** use bullet points, asterisks, or headings (like 'Section Title' or 'Key Ideas') in the final script, as these disrupt spoken flow. Present the final script as a single, smooth block of text.
         
-        Format the output in valid SSML for Google Cloud Text-to-Speech.
-        Include natural pauses (<break/>),
-        and some emphasis (<emphasis>) where appropriate.
         """
     response = client.models.generate_content(
         model=MODEL,
         contents=prompt
     )
 
-    return response.text.strip().replace('*', '')
+    return response.text.strip().replace('*', '').strip().replace('Core Explanation', '').strip().replace('Quick Review & Call to Action', '')
 
 def generate_mp3_title(script):
         prompt = f"""
@@ -134,7 +131,6 @@ def cleanup_directory(directory_path: str):
     """Deletes a directory and all its contents."""
     print(f"Running background cleanup for: {directory_path}")
     try:
-        # Use shutil.rmtree to delete the directory and all files within it
         shutil.rmtree(directory_path)
         print(f"Successfully cleaned up temporary directory: {directory_path}")
     except OSError as e:
@@ -198,15 +194,11 @@ def text_to_speech(text, audio_file, voice_name='en-US-Wavenet-I'):
         input=synthesis_input, voice=voice, audio_config=audio_config
     )
 
-    # --- THE MODIFIED PART STARTS HERE ---
-    # 1. Open the file in binary write mode ('wb').
     try:
         with open(audio_file, "wb") as out:
-            # 2. Write the raw MP3 binary data to the file.
             out.write(response.audio_content)
     except IOError as e:
         print(f"Error saving audio file to {audio_file}: {e}")
-        # Re-raise the exception to let the calling code know saving failed
         raise
 
     print(f"Audio content successfully saved to {audio_file}")

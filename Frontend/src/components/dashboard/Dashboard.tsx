@@ -662,8 +662,7 @@ export default function Dashboard() {
                   </p>
                 ) : !sessionHasDocuments ? (
                   <p className="text-sm text-muted-foreground">
-                    Upload at least one notebook to this session to enable Smart
-                    QnA.
+                    Upload at least one notebook to this session to enable QnA.
                   </p>
                 ) : chatLoading ? (
                   <p className="text-sm text-muted-foreground">
@@ -782,8 +781,8 @@ export default function Dashboard() {
                     setIsGeneratingAudio(true);
                     setAudioError(null);
                     try {
-                      const audioUrl = await generateAudioLesson(selectedSessionId);
-                      window.alert(`Audio lesson generated: ${audioUrl}`);
+                      const filename = await generateAudioLesson(selectedSessionId);
+                      window.alert(`Audio lesson "${filename}" downloaded successfully!`);
                     } catch (error) {
                       setAudioError((error as Error).message);
                       window.alert(`Error generating audio: ${(error as Error).message}`);
@@ -834,12 +833,12 @@ export default function Dashboard() {
                   onClick={tile.onClick ?? (() => window.alert(`${tile.label} is coming soon`))}
                   disabled={
                     (isGeneratingAudio && tile.label === "Audio Overview") ||
-                    (isGeneratingSummary && tile.label === "Summary")
+                    (isGeneratingSummary && tile.label === "Summary Notes")
                   }
                 >
                   {(isGeneratingAudio && tile.label === "Audio Overview") ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
-                  ) : (isGeneratingSummary && tile.label === "Summary") ? (
+                  ) : (isGeneratingSummary && tile.label === "Summary Notes") ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
                   ) : (
                     <span className="text-lg">{tile.icon}</span>
@@ -847,7 +846,7 @@ export default function Dashboard() {
                   <span>
                     {(isGeneratingAudio && tile.label === "Audio Overview")
                       ? "Generating Audio..."
-                      : (isGeneratingSummary && tile.label === "Summary")
+                      : (isGeneratingSummary && tile.label === "Summary Notes")
                       ? "Generating Summary..."
                       : tile.label}
                   </span>

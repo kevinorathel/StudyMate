@@ -374,21 +374,16 @@ export async function generateSessionSummary(sessionId: number): Promise<void> {
     let filename = `session_summary_${sessionId}.pdf`; 
 
     if (contentDisposition) {
-      // Try to parse RFC 6266 compliant filename* first
       const rfc6266Match = /filename\*=(.+)/.exec(contentDisposition);
       if (rfc6266Match && rfc6266Match[1]) {
         let encodedFilename = rfc6266Match[1];
-        // Remove UTF-8'' or utf-8'' if present (case-insensitive)
         encodedFilename = encodedFilename.replace(/^(?:UTF-8''|utf-8'')/i, '');
-        // Remove any remaining quotes and decode
         filename = decodeURIComponent(encodedFilename.replace(/^['"]|['"]$/g, ''));
       } else {
-        // Fallback to RFC 2616 compliant filename
         const rfc2616Match = /filename="([^"]+)"/.exec(contentDisposition);
         if (rfc2616Match && rfc2616Match[1]) {
           filename = rfc2616Match[1];
         } else {
-          // Fallback for cases where filename is not quoted
           const unquotedFilenameMatch = /filename=([^;]+)/.exec(contentDisposition);
           if (unquotedFilenameMatch && unquotedFilenameMatch[1]) {
             filename = unquotedFilenameMatch[1].trim();

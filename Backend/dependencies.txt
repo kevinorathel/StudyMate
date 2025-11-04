@@ -1,4 +1,0 @@
-pip install pytesseract pdf2image pillow
-
-
-Langchain

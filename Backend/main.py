@@ -53,7 +53,6 @@ def cleanup_file_and_dir(file_path: str, dir_path: str):
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-        # The file path is guaranteed to be inside the dir_path
         if os.path.exists(dir_path):
             shutil.rmtree(dir_path, ignore_errors=True)
         print(f"Cleaned up temporary summary directory: {dir_path}")
@@ -61,11 +60,11 @@ def cleanup_file_and_dir(file_path: str, dir_path: str):
         print(f"Error during file cleanup: {e}")
 
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
-def read_root():
+async def test_api():
     return {"message": "Server is running fine"}
 
 @app.post("/signup", status_code=status.HTTP_200_OK)
-def signup_user(payload: SignupRequest):
+async def signup_user(payload: SignupRequest):
     try:
         with get_cursor() as cur:
 
@@ -101,7 +100,7 @@ def signup_user(payload: SignupRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/login", status_code=status.HTTP_200_OK)
-def login_user(payload: LoginRequest):
+async def login_user(payload: LoginRequest):
     try:
         with get_cursor() as cur:
 
