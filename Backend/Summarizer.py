@@ -12,7 +12,7 @@ from sentence_transformers import SentenceTransformer
 
 from dbconnect import get_cursor
 
-GEMINI_MODEL_NAME = "gemini-2.5-pro"
+GEMINI_MODEL_NAME = "gemini-2.5-flash-lite"
 
 LOCAL_EMBED_MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 CHUNK_LIMIT = 75
