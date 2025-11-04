@@ -16,12 +16,28 @@ export async function generateAudioLesson(sessionId: number): Promise<string> {
   let filename = `audio-lesson-${sessionId}.mp3`;
   
   if (contentDisposition) {
-      const parts = contentDisposition.split('filename=');
-      if (parts.length > 1) {
-          filename = parts.pop()!.trim().replace(/['"]|utf-8''/g, '');
-          filename = decodeURIComponent(filename);
+      const rfc6266Match = /filename\*=([^;]+)/.exec(contentDisposition);
+      if (rfc6266Match && rfc6266Match[1]) {
+        let encodedFilename = rfc6266Match[1];
+        encodedFilename = encodedFilename.replace(/^(?:UTF-8''|utf-8'')/i, '');
+        filename = decodeURIComponent(encodedFilename.replace(/^['"]|['"]$/g, ''));
+      } else {
+        const rfc2616Match = /filename="([^"]+)"/.exec(contentDisposition);
+        if (rfc2616Match && rfc2616Match[1]) {
+          filename = rfc2616Match[1];
+        } else {
+          const unquotedFilenameMatch = /filename=([^;]+)/.exec(contentDisposition);
+          if (unquotedFilenameMatch && unquotedFilenameMatch[1]) {
+            filename = unquotedFilenameMatch[1].trim();
+          }
+        }
       }
-  }
+    }
+  
+  const filenameParts = filename.split('.');
+  const name = filenameParts.slice(0, -1).join('.');
+  const ext = filenameParts[filenameParts.length - 1];
+  filename = `${name}.${ext}`;
 
   const blob = await response.blob();
   const url = window.URL.createObjectURL(blob);
@@ -36,5 +52,5 @@ export async function generateAudioLesson(sessionId: number): Promise<string> {
   window.URL.revokeObjectURL(url);
 
 
-  return `Audio lesson "${filename}" downloaded successfully.`;
+  return filename;
 }
