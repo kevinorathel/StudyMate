@@ -1,6 +1,6 @@
 import ast
 import shutil
-from typing import Optional
+from typing import Optional, List, Dict
 
 import numpy as np
 from faiss import IndexFlatL2
@@ -16,7 +16,8 @@ from rest_framework import status
 from starlette.background import BackgroundTask
 from starlette.responses import  FileResponse
 
-from Summarizer import Summarizer_main
+from Flashcards import run_flashcard_job
+from Summarizer import Summarizer_main, db_connection
 from dbconnect import get_cursor
 import bcrypt
 from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
@@ -550,6 +551,39 @@ async def generate_session_summary(session_id: int):
             detail=f"Summary generation failed: {e}"
         )
 
+@app.get("/generateFlashcards", status_code=status.HTTP_200_OK, response_model=List[Dict])
+async def generate_session_flashcards(session_id: int):
+    """
+    Triggers the RAG pipeline to generate a list of question-and-answer flashcards
+    for a specified session ID.
+    """
+
+    if session_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid session_id. Must be a positive integer."
+        )
+
+    try:
+        print(f"Starting Flashcards job for session ID: {session_id}")
+
+        flashcards_list = run_flashcard_job(
+            session_id=session_id,
+            db_connection_service=db_connection
+        )
+
+        return flashcards_list
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Flashcard generation failed due to internal process error: {e}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during flashcard generation: {e}"
+        )
 
 
 if __name__ == "__main__":
