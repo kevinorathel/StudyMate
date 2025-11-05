@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { uploadDocument } from "@/api/uploads";
 import {
   fetchSessions,
-  createSession,
   generateSessionSummary,
   type SessionSummary,
   type SessionDocument,
@@ -21,7 +20,7 @@ import {
   type ChatMessage,
 } from "@/api/chat";
 import { useAuth } from "@/context/AuthContext";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, X } from "lucide-react";
 import { Loader } from "@/components/ui/loader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -31,10 +30,277 @@ const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
 const QUICK_PROMPTS = [
   "Summarize key ideas",
-  "Create 5 flashcards",
+  "Create 15 flashcards",
 ];
 
+const MAX_FLASHCARDS = 15;
+
+const FLASHCARD_PROMPT = [
+  "Create exactly 15 study flashcards that cover the most important ideas from this session.",
+  "Respond using ONLY valid JSON formatted as",
+  `[{"question": "...", "answer": "..."}]`,
+  "with no additional commentary.",
+].join(" ");
+
 type NotesBySession = Record<number, string>;
+
+interface Flashcard {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+function toFlashcardFromRecord(
+  record: Record<string, unknown>,
+  index: number
+): Flashcard | null {
+  const questionFields = ["question", "front", "prompt", "q", "term", "card"];
+  const answerFields = [
+    "answer",
+    "back",
+    "response",
+    "a",
+    "definition",
+    "explanation",
+  ];
+
+  let question = "";
+  for (const field of questionFields) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim()) {
+      question = value.trim();
+      break;
+    }
+  }
+
+  let answer = "";
+  for (const field of answerFields) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim()) {
+      answer = value.trim();
+      break;
+    }
+  }
+
+  if (!question || !answer) {
+    return null;
+  }
+
+  const rawId = record.id;
+  const id =
+    typeof rawId === "string" && rawId.trim()
+      ? rawId.trim()
+      : `flashcard-${index}`;
+
+  return { id, question, answer };
+}
+
+function parseFlashcardsResponse(raw: string): Flashcard[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const tryParseArray = (value: unknown): Flashcard[] => {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const results: Flashcard[] = [];
+    value.forEach((entry, index) => {
+      if (entry && typeof entry === "object") {
+        const flashcard = toFlashcardFromRecord(
+          entry as Record<string, unknown>,
+          index
+        );
+        if (flashcard) {
+          results.push(flashcard);
+        }
+      } else if (typeof entry === "string") {
+        const segments = entry
+          .split(/answer\s*[:\-]/i)
+          .map((segment) => segment.trim())
+          .filter(Boolean);
+        if (segments.length >= 2) {
+          const question = segments[0]
+            .replace(/^(?:\d+\.\s*)?(?:q(?:uestion)?\s*[:\-])?/i, "")
+            .trim();
+          const answer = segments.slice(1).join(" ").trim();
+          if (question && answer) {
+            results.push({
+              id: `flashcard-${index}`,
+              question,
+              answer,
+            });
+          }
+        }
+      }
+    });
+
+    return results;
+  };
+
+  const tryParseJson = (input: string): Flashcard[] => {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return tryParseArray(parsed);
+      }
+      if (parsed && typeof parsed === "object") {
+        const record = parsed as Record<string, unknown>;
+        for (const key of ["flashcards", "cards", "data", "items"]) {
+          const candidate = record[key];
+          const attempt = tryParseArray(candidate);
+          if (attempt.length > 0) {
+            return attempt;
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return [];
+  };
+
+  const jsonFirstAttempt = tryParseJson(trimmed);
+  if (jsonFirstAttempt.length > 0) {
+    return jsonFirstAttempt;
+  }
+
+  const bracketMatch = trimmed.match(/\[[\s\S]*\]/);
+  if (bracketMatch) {
+    const attempt = tryParseJson(bracketMatch[0]);
+    if (attempt.length > 0) {
+      return attempt;
+    }
+  }
+
+  const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    const attempt = tryParseJson(objectMatch[0]);
+    if (attempt.length > 0) {
+      return attempt;
+    }
+  }
+
+  const normalized = trimmed.replace(/\r\n/g, "\n");
+  const sections = normalized
+    .split(/\n{2,}/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  const fallback: Flashcard[] = [];
+
+  sections.forEach((section, sectionIndex) => {
+    const lines = section
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      return;
+    }
+
+    let questionLine = lines[0];
+    const questionMatch = questionLine.match(
+      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:\-\.]|\))?\s*(.+)$/i
+    );
+    if (questionMatch && questionMatch[1]) {
+      questionLine = questionMatch[1].trim();
+    }
+
+    let answerLines = lines.slice(1);
+    if (answerLines.length === 0) {
+      const inlineSplit = questionLine.split(/answer\s*[:\-]/i);
+      if (inlineSplit.length > 1) {
+        questionLine = inlineSplit[0].trim();
+        answerLines = [inlineSplit.slice(1).join(" ").trim()];
+      }
+    } else if (/^a(?:nswer)?/i.test(answerLines[0])) {
+      answerLines[0] = answerLines[0].replace(
+        /^a(?:nswer)?\s*(?:[:\-\.]|\))?\s*/i,
+        ""
+      );
+    }
+
+    const answerText = answerLines.join(" ").trim();
+    if (questionLine && answerText) {
+      fallback.push({
+        id: `flashcard-${sectionIndex}`,
+        question: questionLine,
+        answer: answerText,
+      });
+    }
+  });
+
+  if (fallback.length > 0) {
+    return fallback;
+  }
+
+  const lines = normalized
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const potentialQuestion = lines[i].replace(
+      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:\-\.]|\))?\s*/i,
+      ""
+    );
+    const potentialAnswer = lines[i + 1].replace(
+      /^a(?:nswer)?\s*(?:[:\-\.]|\))?\s*/i,
+      ""
+    );
+    if (potentialQuestion && potentialAnswer) {
+      fallback.push({
+        id: `flashcard-${i}`,
+        question: potentialQuestion,
+        answer: potentialAnswer,
+      });
+    }
+  }
+
+  const qaRegex =
+    /(?:^|\n)\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)[^:\n]*[:\-]\s*(.+?)(?:\r?\n|\r|\n)+\s*(?:[\-\*]?\s*)?(?:a(?:nswer)?)[:\-\s]+([\s\S]+?)(?=(?:\n\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)\b|\n\s*[\-\*]\s*(?:q(?:uestion)?|card)\b|$))/gi;
+
+  const regexCards: Flashcard[] = [];
+  for (const match of normalized.matchAll(qaRegex)) {
+    const question = match[1]?.trim();
+    const answer = match[2]?.trim();
+    if (question && answer) {
+      regexCards.push({
+        id: `flashcard-regex-${regexCards.length}`,
+        question: question.replace(/^["'“”]+|["'“”]+$/g, ""),
+        answer: answer.replace(/^["'“”]+|["'“”]+$/g, ""),
+      });
+    }
+  }
+
+  if (regexCards.length > 0) {
+    return regexCards;
+  }
+
+  return fallback;
+}
+
+function detectFlashcardPayload(raw: string): Flashcard[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const looksLikeJson =
+    trimmed.startsWith("[") ||
+    trimmed.startsWith("{") ||
+    /"question"\s*:/i.test(trimmed);
+  if (!looksLikeJson) {
+    return [];
+  }
+
+  const parsed = parseFlashcardsResponse(trimmed);
+  if (parsed.length === 0) {
+    return [];
+  }
+  return parsed;
+}
 
 function loadNotesFromStorage(): NotesBySession {
   if (typeof window === "undefined") {
@@ -120,11 +386,19 @@ export default function Dashboard() {
   const [isThinking, setIsThinking] = React.useState(false);
 
   const [isUploading, setIsUploading] = React.useState(false);
-  const [isCreatingSession, setIsCreatingSession] = React.useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
   const [audioError, setAudioError] = React.useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = React.useState(false);
   const [summaryError, setSummaryError] = React.useState<string | null>(null);
+
+  const [isFlashcardModalOpen, setIsFlashcardModalOpen] = React.useState(false);
+  const [flashcards, setFlashcards] = React.useState<Flashcard[]>([]);
+  const [flashcardsLoading, setFlashcardsLoading] = React.useState(false);
+  const [flashcardsError, setFlashcardsError] =
+    React.useState<string | null>(null);
+  const [flippedCardIds, setFlippedCardIds] = React.useState<
+    Record<string, boolean>
+  >({});
 
   const [notesBySession, setNotesBySession] =
     React.useState<NotesBySession>(loadNotesFromStorage);
@@ -449,6 +723,93 @@ export default function Dashboard() {
     [userId, sessions.length, selectedSessionId, refreshSessions]
   );
 
+  const loadFlashcards = React.useCallback(async () => {
+    if (selectedSessionId === null) {
+      setFlashcardsError("Select a session to generate flashcards.");
+      setFlashcards([]);
+      return;
+    }
+
+    if (!sessionHasDocuments) {
+      setFlashcardsError("Upload a notebook to unlock flashcards.");
+      setFlashcards([]);
+      return;
+    }
+
+    setFlashcardsLoading(true);
+    setFlashcardsError(null);
+
+    try {
+      const response = await askQuestion(selectedSessionId, FLASHCARD_PROMPT);
+      const parsed = parseFlashcardsResponse(response).slice(0, MAX_FLASHCARDS);
+      if (parsed.length === 0) {
+        const teaser =
+          response.length > 400
+            ? `${response.slice(0, 400)}…`
+            : response;
+        setFlashcards([]);
+        setFlippedCardIds({});
+        setFlashcardsError(
+          teaser
+            ? `We couldn't turn the response into flashcards.\n\nModel reply:\n${teaser}`
+            : "We couldn't turn the response into flashcards. Please try opening them again later."
+        );
+        return;
+      }
+
+      const timestamp = Date.now();
+      setFlashcards(
+        parsed.map((card, index) => ({
+          ...card,
+          id: card.id || `flashcard-${timestamp}-${index}`,
+        }))
+      );
+      setFlippedCardIds({});
+    } catch (error) {
+      console.error("Failed to generate flashcards:", error);
+      setFlashcards([]);
+      setFlashcardsError(
+        (error as Error).message ??
+          "We couldn't load flashcards right now. Please try opening them again later."
+      );
+    } finally {
+      setFlashcardsLoading(false);
+    }
+  }, [selectedSessionId, sessionHasDocuments]);
+
+  const handleFlashcardsClick = React.useCallback(() => {
+    if (selectedSessionId === null) {
+      window.alert("Please select a session first.");
+      return;
+    }
+
+    if (!sessionHasDocuments) {
+      window.alert("Upload a notebook to generate flashcards.");
+      return;
+    }
+
+    setIsFlashcardModalOpen(true);
+  }, [selectedSessionId, sessionHasDocuments]);
+
+  const handleFlashcardFlip = React.useCallback((id: string) => {
+    setFlippedCardIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }, []);
+
+  const handleCloseFlashcardModal = React.useCallback(() => {
+    setIsFlashcardModalOpen(false);
+    setFlippedCardIds({});
+    setFlashcardsError(null);
+  }, []);
+
+  React.useEffect(() => {
+    if (isFlashcardModalOpen) {
+      void loadFlashcards();
+    }
+  }, [isFlashcardModalOpen, loadFlashcards]);
+
   const handleSelectSessionFromHeader = React.useCallback((id: number) => {
     setSelectedSessionId(id);
   }, []);
@@ -533,12 +894,18 @@ export default function Dashboard() {
 
   const handleQuickPrompt = React.useCallback(
     (prompt: string) => {
+      const normalized = prompt.trim().toLowerCase();
+      if (normalized.includes("flashcard")) {
+        handleFlashcardsClick();
+        return;
+      }
+
       if (chatDisabled) {
         return;
       }
       sendMessage(prompt);
     },
-    [chatDisabled, sendMessage]
+    [chatDisabled, sendMessage, handleFlashcardsClick]
   );
 
   React.useEffect(() => {
@@ -558,7 +925,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-[#f5f7fb] text-zinc-900 dark:bg-[#0f1015] dark:text-zinc-100 antialiased">
       <DashboardHeader
         onCreateSession={handleCreateSessionClick}
-        createDisabled={isUploading || isCreatingSession}
+        createDisabled={isUploading}
         sessions={sessions.map((session) => ({
           id: session.id,
           name: session.name,
@@ -673,33 +1040,69 @@ export default function Dashboard() {
                     Ask a question about your uploaded files to begin.
                   </p>
                 ) : (
-                  messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={cn(
-                        "flex flex-col",
-                        message.sender === "user"
-                          ? "items-end"
-                          : "items-start"
-                      )}
-                    >
-                      <span className="text-xs uppercase text-zinc-400">
-                        {message.sender === "user" ? "You" : "StudyMate"}
-                      </span>
+                  messages.map((message) => {
+                    const isUser = message.sender === "user";
+                    const flashcardPayload = !isUser
+                      ? detectFlashcardPayload(message.text)
+                      : [];
+                    const showFlashcardPreview =
+                      flashcardPayload.length > 0 &&
+                      flashcardPayload.every(
+                        (card) => card.question && card.answer
+                      );
+
+                    return (
                       <div
+                        key={message.id}
                         className={cn(
-                          "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
-                          message.sender === "user"
-                            ? "bg-blue-100 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
-                            : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                          "flex flex-col",
+                          isUser ? "items-end" : "items-start"
                         )}
                       >
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {message.text}
-                        </ReactMarkdown>
+                        <span className="text-xs uppercase text-zinc-400">
+                          {isUser ? "You" : "StudyMate"}
+                        </span>
+                        <div
+                          className={cn(
+                            "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
+                            isUser
+                              ? "bg-blue-100 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
+                              : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                          )}
+                        >
+                          {showFlashcardPreview ? (
+                            <div className="space-y-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-rose-500 dark:text-rose-300">
+                                Flashcards ready
+                              </p>
+                              <div className="space-y-3">
+                                {flashcardPayload.map((card, index) => (
+                                  <div
+                                    key={card.id || `${message.id}-card-${index}`}
+                                    className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-xs text-zinc-700 dark:border-rose-900/40 dark:bg-rose-500/10 dark:text-zinc-100"
+                                  >
+                                    <p className="font-semibold text-red-600 dark:text-red-300">
+                                      Q: {card.question}
+                                    </p>
+                                    <p className="mt-1 text-emerald-600 dark:text-emerald-200">
+                                      A: {card.answer}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                                Open the Flashcards popup to study these interactively.
+                              </p>
+                            </div>
+                          ) : (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {message.text}
+                            </ReactMarkdown>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
                 {isThinking && (
                   <div className="text-xs text-zinc-400">Thinking...</div>
@@ -825,6 +1228,7 @@ export default function Dashboard() {
                   icon: "🧠",
                   color:
                     "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300",
+                  onClick: handleFlashcardsClick,
                 },
               ].map((tile) => (
                 <button
@@ -833,13 +1237,16 @@ export default function Dashboard() {
                   onClick={tile.onClick ?? (() => window.alert(`${tile.label} is coming soon`))}
                   disabled={
                     (isGeneratingAudio && tile.label === "Audio Overview") ||
-                    (isGeneratingSummary && tile.label === "Summary Notes")
+                    (isGeneratingSummary && tile.label === "Summary Notes") ||
+                    (flashcardsLoading && tile.label === "Flashcards")
                   }
                 >
                   {(isGeneratingAudio && tile.label === "Audio Overview") ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
                   ) : (isGeneratingSummary && tile.label === "Summary Notes") ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
+                  ) : (flashcardsLoading && tile.label === "Flashcards") ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-rose-700 border-t-transparent dark:border-rose-300 dark:border-t-transparent" />
                   ) : (
                     <span className="text-lg">{tile.icon}</span>
                   )}
@@ -848,6 +1255,8 @@ export default function Dashboard() {
                       ? "Generating Audio..."
                       : (isGeneratingSummary && tile.label === "Summary Notes")
                       ? "Generating Summary..."
+                      : (flashcardsLoading && tile.label === "Flashcards")
+                      ? "Generating Flashcards..."
                       : tile.label}
                   </span>
                 </button>
@@ -891,6 +1300,127 @@ export default function Dashboard() {
           </div>
         </aside>
       </main>
+
+      {isFlashcardModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+          onClick={handleCloseFlashcardModal}
+        >
+          <div
+            className="relative w-full max-w-3xl rounded-3xl bg-white p-6 shadow-xl transition-shadow dark:bg-zinc-900 sm:p-8"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
+                  Flashcard Drill
+                </h2>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Tap a card to flip between the prompt and answer. Scroll to
+                  review all flashcards for this session.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCloseFlashcardModal}
+                >
+                  <span className="sr-only">Close flashcards</span>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              {flashcardsLoading ? (
+                <div className="flex h-48 items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-solid border-rose-500 border-t-transparent dark:border-rose-300 dark:border-t-transparent" />
+                </div>
+              ) : flashcardsError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-500/10 dark:text-rose-200 whitespace-pre-wrap">
+                  {flashcardsError}
+                </div>
+              ) : flashcards.length === 0 ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+                  No flashcards are available yet. Please check back once they
+                  have been generated.
+                </div>
+              ) : (
+                <div className="max-h-[60vh] overflow-y-auto pr-1 sm:pr-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {flashcards.map((card) => {
+                      const flipped = Boolean(flippedCardIds[card.id]);
+                      return (
+                        <button
+                          key={card.id}
+                          type="button"
+                        onClick={() => handleFlashcardFlip(card.id)}
+                        className={cn(
+                          "relative h-44 w-full overflow-hidden rounded-2xl text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2",
+                          flipped
+                            ? "border border-emerald-200 bg-emerald-50/70 focus:ring-emerald-200 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:focus:ring-emerald-700"
+                            : "border border-red-200 bg-red-100/70 focus:ring-red-200 dark:border-red-900/40 dark:bg-red-500/20 dark:focus:ring-red-700"
+                        )}
+                        style={{ perspective: "1200px" }}
+                      >
+                        <span className="sr-only">
+                          Reveal answer for {card.question}
+                        </span>
+                        <div
+                          className="absolute inset-0 h-full w-full"
+                          style={{
+                            transformStyle: "preserve-3d",
+                            transition: "transform 0.6s",
+                            transform: flipped
+                              ? "rotateY(180deg)"
+                              : "rotateY(0deg)",
+                          }}
+                        >
+                          <div
+                            className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-red-100/70 p-4 text-zinc-800 dark:bg-red-500/20 dark:text-zinc-100"
+                            style={{ backfaceVisibility: "hidden" }}
+                          >
+                            <div className="text-xs font-semibold uppercase tracking-wide text-red-500 dark:text-red-300">
+                              Question
+                            </div>
+                            <p className="text-sm font-medium leading-relaxed text-red-600 dark:text-red-300">
+                              {card.question}
+                            </p>
+                            <div className="text-[11px] text-red-400 dark:text-red-300/80">
+                              Tap to show answer
+                            </div>
+                          </div>
+
+                          <div
+                            className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-emerald-100/70 p-4 text-zinc-800 dark:bg-emerald-500/20 dark:text-zinc-100"
+                            style={{
+                              backfaceVisibility: "hidden",
+                              transform: "rotateY(180deg)",
+                            }}
+                          >
+                            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-200">
+                              Answer
+                            </div>
+                            <p className="text-sm leading-relaxed text-emerald-700 dark:text-emerald-200">
+                              {card.answer}
+                            </p>
+                            <div className="text-[11px] text-emerald-500 dark:text-emerald-200/70">
+                              Tap to go back
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* The main loader for uploads, etc. */}
       <Loader isLoading={isUploading} />
