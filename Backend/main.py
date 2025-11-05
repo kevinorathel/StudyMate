@@ -13,6 +13,7 @@ from pydub import AudioSegment
 import glob
 
 from rest_framework import status
+from sentence_transformers import SentenceTransformer
 from starlette.background import BackgroundTask
 from starlette.responses import  FileResponse
 
@@ -35,6 +36,8 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"]
 )
+
+Embedding_Model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 class SignupRequest(BaseModel):
     full_name: str
@@ -270,97 +273,82 @@ async def retrieve_chat_history(session_id: int):
     return {"response": ChatHistory}
 
 @app.post("/ask/", status_code=status.HTTP_200_OK)
-async def ask_question(request: AskRequest):
-    """Handles chat interaction and remembers conversation history."""
+async def ask_question_refactored(request: AskRequest):
+    """
+    Handles chat interaction, remembers conversation history, and uses
+    efficient, database-native RAG context retrieval.
+    """
     session_id = request.session_id
     question = request.question
+    k_chunks = 3
 
     try:
         with get_cursor() as cur:
-
             cur.execute(
                     "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = %s);",
                     (session_id,)
                 )
             session_exists = cur.fetchone()
 
-            if session_exists and session_exists[0]:
+            if not (session_exists and session_exists[0]):
+                pass
 
-                cur.execute(
-                    "SELECT sender, message, created_at FROM chat_history WHERE session_id = %s;",
-                    (session_id,)
-                )
+            cur.execute(
+                "SELECT sender, message FROM chat_history WHERE session_id = %s ORDER BY created_at ASC;",
+                (session_id,)
+            )
 
-                ChatHistory = cur.fetchall()
+            chat_history = cur.fetchall()
 
-                formatted_lines = []
+            formatted_lines = [f"{entry[0]}: {entry[1]}" for entry in chat_history]
+            history = "\n".join(formatted_lines)
 
-                for entry in ChatHistory:
-                    sender = entry[0]
-                    message = entry[1]
-                    formatted_line = f"{sender}: {message}"
+            query_vector = Embedding_Model.encode(
+                [question],
+                convert_to_numpy=True,
+                normalize_embeddings=True
+            ).astype("float32")
+            query_embedding = query_vector[0].tolist()
+            query_vector_string = '[' + ','.join(map(str, query_embedding)) + ']'
 
-                    formatted_lines.append(formatted_line)
+            sql_query = """
+                SELECT  e.chunk_text 
+                FROM embeddings e
+                LEFT JOIN sessiondocuments s on s.document_id = e.document_id 
+                WHERE  s.session_id = %s 
+                ORDER BY e.embedding <=> %s::vector
+                LIMIT %s;
+            """
+            cur.execute(sql_query, (session_id, query_vector_string, k_chunks))
+            chunks = cur.fetchall()
 
-                history = "\n".join(formatted_lines)
+            context_text = "\n\n---\n\n".join([row[0] for row in chunks if isinstance(row, tuple) and len(row) > 0])
 
-                cur.execute(
-                    "SELECT embedding, chunk_text FROM embeddings e "
-                    "LEFT JOIN sessiondocuments sd on sd.session_id = %s "
-                    "WHERE e.document_id = sd.document_id;",
-                    (session_id,)
-                )
+            if not context_text:
+                print(f"Warning: RAG query returned 0 chunks for session ID {session_id}.")
 
-                index_store = cur.fetchall()
+            response = generate_response(question, context_text, history)
 
-                raw_embeddings = []
-                chunks = []
+            cur.execute(
+                "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                (session_id, 'User', question)
+            )
 
-                for embedding_data, chunk_text in index_store:
-                    chunks.append(chunk_text)
+            cur.execute(
+                "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
+                (session_id, 'Bot', response)
+            )
 
-                    try:
-                        float_list = ast.literal_eval(embedding_data)
-                        vector = np.array(float_list, dtype='float32')
-                        raw_embeddings.append(vector)
+            return {"response": response}
 
-                    except Exception as e:
-                        print(f"Error converting embedding data to vector: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return {"response": f"Sorry, an internal error occurred while processing your request.: {e}"}
 
-                if not raw_embeddings:
-                    print("Warning: No embeddings found for this session.")
-                    index = None
-                    chunks = []
-                else:
-                    vectors_matrix = np.vstack(raw_embeddings)
-                    dimension = vectors_matrix.shape[1]
-
-                    index = IndexFlatL2(dimension)
-                    index.add(vectors_matrix)
-
-                results = search_index(question, index, chunks, k=3)
-                context = results[0][0]
-                response = generate_response(question, context, history)
-
-                cur.execute(
-                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
-                    (session_id, 'User', question)
-                )
-
-                cur.execute(
-                    "INSERT INTO chat_history (session_id, sender, message) VALUES (%s, %s, %s);",
-                    (session_id, 'Bot', response)
-                )
-
-                return {"response": response}
-
-
-    except Exception as db_error:
-
-        print(f"Database operation failed: {db_error}")
+        print(f"An error occurred: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+            detail=f"An error occurred: {e}"
         )
 
 @app.get("/getDocumentsBySession", status_code=status.HTTP_200_OK)
