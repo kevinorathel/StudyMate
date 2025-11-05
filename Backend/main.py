@@ -1,9 +1,6 @@
-import ast
 import shutil
 from typing import Optional, List, Dict
 
-import numpy as np
-from faiss import IndexFlatL2
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -21,7 +18,7 @@ from Flashcards import run_flashcard_job
 from Summarizer import Summarizer_main, db_connection
 from dbconnect import get_cursor
 import bcrypt
-from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, search_index, generate_response, generate_session_name
+from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, generate_response, generate_session_name
 from AudioGen import summarize_chunk, generate_continued_script, generate_initial_script, text_to_speech, \
     cleanup_directory
 
