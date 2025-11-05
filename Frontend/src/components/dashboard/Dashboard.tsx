@@ -25,6 +25,7 @@ import { Loader } from "@/components/ui/loader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { generateAudioLesson } from "@/api/audio";
+import { API_BASE_URL } from "@/config";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
@@ -34,13 +35,6 @@ const QUICK_PROMPTS = [
 ];
 
 const MAX_FLASHCARDS = 15;
-
-const FLASHCARD_PROMPT = [
-  "Create exactly 15 study flashcards that cover the most important ideas from this session.",
-  "Respond using ONLY valid JSON formatted as",
-  `[{"question": "...", "answer": "..."}]`,
-  "with no additional commentary.",
-].join(" ");
 
 type NotesBySession = Record<number, string>;
 
@@ -281,6 +275,52 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
   return fallback;
 }
 
+function normalizeFlashcardsFromUnknown(payload: unknown): Flashcard[] {
+  if (typeof payload === "string") {
+    return parseFlashcardsResponse(payload);
+  }
+
+  if (Array.isArray(payload)) {
+    const results: Flashcard[] = [];
+    payload.forEach((entry, index) => {
+      if (entry && typeof entry === "object") {
+        const card = toFlashcardFromRecord(
+          entry as Record<string, unknown>,
+          index
+        );
+        if (card) {
+          results.push(card);
+        }
+      } else if (typeof entry === "string") {
+        const parsed = parseFlashcardsResponse(entry);
+        parsed.forEach((card) => {
+          results.push({
+            ...card,
+            id: card.id || `flashcard-${results.length}`,
+          });
+        });
+      }
+    });
+    return results;
+  }
+
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    const directCard = toFlashcardFromRecord(record, 0);
+    if (directCard) {
+      return [directCard];
+    }
+    for (const key of ["flashcards", "cards", "data", "items"]) {
+      const attempt = normalizeFlashcardsFromUnknown(record[key]);
+      if (attempt.length > 0) {
+        return attempt;
+      }
+    }
+  }
+
+  return [];
+}
+
 function detectFlashcardPayload(raw: string): Flashcard[] {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -295,7 +335,7 @@ function detectFlashcardPayload(raw: string): Flashcard[] {
     return [];
   }
 
-  const parsed = parseFlashcardsResponse(trimmed);
+  const parsed = normalizeFlashcardsFromUnknown(trimmed);
   if (parsed.length === 0) {
     return [];
   }
@@ -739,38 +779,55 @@ export default function Dashboard() {
     setFlashcardsLoading(true);
     setFlashcardsError(null);
 
+    const endpoints = [
+      `${API_BASE_URL}/generateFlashcards?session_id=${selectedSessionId}`,
+      `${API_BASE_URL}/generateFlashcards/?session_id=${selectedSessionId}`,
+    ];
+
+    const errors: string[] = [];
+
     try {
-      const response = await askQuestion(selectedSessionId, FLASHCARD_PROMPT);
-      const parsed = parseFlashcardsResponse(response).slice(0, MAX_FLASHCARDS);
-      if (parsed.length === 0) {
-        const teaser =
-          response.length > 400
-            ? `${response.slice(0, 400)}…`
-            : response;
-        setFlashcards([]);
-        setFlippedCardIds({});
-        setFlashcardsError(
-          teaser
-            ? `We couldn't turn the response into flashcards.\n\nModel reply:\n${teaser}`
-            : "We couldn't turn the response into flashcards. Please try opening them again later."
-        );
-        return;
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint);
+          if (!response.ok) {
+            errors.push(`${endpoint} → ${response.status}`);
+            continue;
+          }
+
+          const payload = await response.json();
+          const parsed = normalizeFlashcardsFromUnknown(payload).slice(
+            0,
+            MAX_FLASHCARDS
+          );
+
+          if (parsed.length === 0) {
+            errors.push(`${endpoint} → No flashcards returned`);
+            continue;
+          }
+
+          const timestamp = Date.now();
+          setFlashcards(
+            parsed.map((card, index) => ({
+              ...card,
+              id: card.id || `flashcard-${timestamp}-${index}`,
+            }))
+          );
+          setFlippedCardIds({});
+          return;
+        } catch (error) {
+          errors.push(`${endpoint} → ${(error as Error).message}`);
+        }
       }
 
-      const timestamp = Date.now();
-      setFlashcards(
-        parsed.map((card, index) => ({
-          ...card,
-          id: card.id || `flashcard-${timestamp}-${index}`,
-        }))
-      );
-      setFlippedCardIds({});
-    } catch (error) {
-      console.error("Failed to generate flashcards:", error);
       setFlashcards([]);
+      setFlippedCardIds({});
       setFlashcardsError(
-        (error as Error).message ??
-          "We couldn't load flashcards right now. Please try opening them again later."
+        errors.length > 0
+          ? `We couldn't load flashcards for this session.\n\nDetails:\n${errors.join(
+              "\n"
+            )}`
+          : "We couldn't load flashcards for this session. Please try again later."
       );
     } finally {
       setFlashcardsLoading(false);
@@ -1256,7 +1313,7 @@ export default function Dashboard() {
                       : (isGeneratingSummary && tile.label === "Summary Notes")
                       ? "Generating Summary..."
                       : (flashcardsLoading && tile.label === "Flashcards")
-                      ? "Generating Flashcards..."
+                      ? "Loading Flashcards..."
                       : tile.label}
                   </span>
                 </button>
