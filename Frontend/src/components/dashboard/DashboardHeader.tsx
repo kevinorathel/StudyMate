@@ -9,8 +9,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PlusCircle, ChevronDown } from "lucide-react";
+import { PlusCircle, ChevronDown, Plus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+
+// 🆕 Import StudyMate logos (light + dark)
+import logoLight from "@/assets/studymate-logo-black.png";
+import logoDark from "@/assets/studymate-logo-white.png";
 
 type SessionOption = {
   id: number;
@@ -31,6 +35,9 @@ interface DashboardHeaderProps {
   selectedSessionId: number | null;
   onSelectSession: (id: number) => void;
   sessionsLoading?: boolean;
+  onShowFilesDrawer?: () => void;
+  onShowStudioDrawer?: () => void;
+  sessionHasDocuments?: boolean; // 🆕 new prop
 }
 
 interface LegacyDashboardHeaderProps {
@@ -41,7 +48,9 @@ interface LegacyDashboardHeaderProps {
   onSelectNotebook: (id: string) => void;
 }
 
-type CombinedDashboardHeaderProps = DashboardHeaderProps | LegacyDashboardHeaderProps;
+type CombinedDashboardHeaderProps =
+  | DashboardHeaderProps
+  | LegacyDashboardHeaderProps;
 
 function isSessionMode(
   props: CombinedDashboardHeaderProps
@@ -72,7 +81,9 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
 
   const displayName =
     normalizedFullName ??
-    (joinedNameParts.length > 0 ? joinedNameParts : normalizedEmail ?? "Your Account");
+    (joinedNameParts.length > 0
+      ? joinedNameParts
+      : normalizedEmail ?? "Your Account");
 
   const displayEmail = normalizedEmail;
 
@@ -88,6 +99,7 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
       .join("")
       .slice(0, 2) || "U";
 
+  // ---------- NOTEBOOK MODE ----------
   if (!isSessionMode(props)) {
     const {
       notebooks,
@@ -103,22 +115,31 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
         : notebooks.find((item) => item.id === selectedNotebookId) ?? null;
 
     const dropdownLabel =
-      activeNotebook?.title ?? (notebooks.length > 0 ? "Select notebook" : "No notebooks yet");
+      activeNotebook?.title ??
+      (notebooks.length > 0 ? "Select notebook" : "No notebooks yet");
 
     return (
-      <header className="sticky top-0 z-40 bg-[#f5f7fb]/95 backdrop-blur dark:bg-[#0f1015]/95">
-        <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2">
-            <div
-              className="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 via-violet-500 to-emerald-500 shadow"
-              aria-hidden="true"
+      <header className="sticky top-0 z-40 backdrop-blur bg-[var(--background)] text-[var(--foreground)] border-b border-[var(--border)] transition-colors duration-300">
+        <div className="flex h-14 w-full items-center justify-between px-3 sm:px-6 lg:px-8">
+          {/* Logo */}
+          <div className="flex items-center gap-2 cursor-pointer select-none">
+            <img
+              src={logoLight}
+              alt="StudyMate Logo"
+              className="h-8 w-auto dark:hidden"
             />
-            <span className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-100">
-              Smart StudyMate
+            <img
+              src={logoDark}
+              alt="StudyMate Logo"
+              className="h-8 w-auto hidden dark:block"
+            />
+            <span className="hidden sm:inline text-sm font-semibold tracking-tight text-zinc-800 dark:text-zinc-100">
+              StudyMate
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Notebook controls */}
+          <div className="flex items-center gap-2 sm:gap-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -127,7 +148,7 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
                   className="hidden rounded-full border-zinc-200 px-4 text-sm font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-100 sm:inline-flex"
                 >
                   {dropdownLabel}
-                  <ChevronDown className="ml-2 h-4 w-4" aria-hidden="true" />
+                  <ChevronDown className="ml-2 h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-60" align="center" forceMount>
@@ -136,24 +157,27 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {notebooks.length === 0 ? (
-                  <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                  <DropdownMenuItem
+                    disabled
+                    className="text-xs text-muted-foreground"
+                  >
                     No notebooks yet
                   </DropdownMenuItem>
                 ) : (
-                  notebooks.map((notebook) => (
+                  notebooks.map((nb) => (
                     <DropdownMenuItem
-                      key={notebook.id}
-                      onSelect={() => onSelectNotebook(notebook.id)}
+                      key={nb.id}
+                      onSelect={() => onSelectNotebook(nb.id)}
                       className={
-                        notebook.id === selectedNotebookId
+                        nb.id === selectedNotebookId
                           ? "bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
                           : ""
                       }
                     >
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium">{notebook.title}</span>
+                        <span className="text-sm font-medium">{nb.title}</span>
                         <span className="text-xs text-muted-foreground">
-                          {notebook.subject}
+                          {nb.subject}
                         </span>
                       </div>
                     </DropdownMenuItem>
@@ -163,8 +187,17 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
             </DropdownMenu>
 
             <Button
+              size="icon"
+              className="rounded-full sm:hidden"
+              onClick={onCreateNotebook}
+              disabled={createDisabled}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+
+            <Button
               size="sm"
-              className="rounded-full"
+              className="hidden sm:inline-flex rounded-full"
               onClick={onCreateNotebook}
               disabled={createDisabled}
             >
@@ -172,9 +205,13 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
               New Notebook
             </Button>
 
+            {/* Avatar Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                <Button
+                  variant="ghost"
+                  className="relative h-9 w-9 rounded-full"
+                >
                   <Avatar className="h-9 w-9">
                     <AvatarImage src="/avatars/01.png" alt={displayName} />
                     <AvatarFallback>{avatarFallback}</AvatarFallback>
@@ -187,11 +224,11 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
                     <p className="text-sm font-medium leading-none">
                       {displayName}
                     </p>
-                    {displayEmail ? (
+                    {displayEmail && (
                       <p className="text-xs leading-none text-muted-foreground">
                         {displayEmail}
                       </p>
-                    ) : null}
+                    )}
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -209,6 +246,7 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
     );
   }
 
+  // ---------- SESSION MODE ----------
   const {
     sessions,
     selectedSessionId,
@@ -216,12 +254,14 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
     onCreateSession,
     createDisabled = false,
     sessionsLoading = false,
+    onShowFilesDrawer,
+    onShowStudioDrawer,
   } = props;
 
   const activeSession =
     selectedSessionId == null
       ? null
-      : sessions.find((item) => item.id === selectedSessionId) ?? null;
+      : sessions.find((s) => s.id === selectedSessionId) ?? null;
 
   const dropdownLabel = sessionsLoading
     ? "Loading sessions…"
@@ -232,28 +272,74 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
     : "No sessions yet";
 
   return (
-    <header className="sticky top-0 z-40 bg-[#f5f7fb]/95 backdrop-blur dark:bg-[#0f1015]/95">
-      <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2">
-          <div
-            className="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 via-violet-500 to-emerald-500 shadow"
-            aria-hidden="true"
+    <header className="sticky top-0 z-40 backdrop-blur bg-[var(--background)] text-[var(--foreground)] border-b border-[var(--border)] transition-colors duration-300">
+      <div className="flex h-14 w-full items-center justify-between px-3 sm:px-6 lg:px-8">
+        {/* Logo */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <img
+            src={logoLight}
+            alt="StudyMate Logo"
+            className="h-8 w-auto dark:hidden"
           />
-          <span className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-100">
-            Smart StudyMate
+          <img
+            src={logoDark}
+            alt="StudyMate Logo"
+            className="h-8 w-auto hidden dark:block"
+          />
+          <span className="hidden sm:inline text-sm font-semibold tracking-tight text-zinc-800 dark:text-zinc-100">
+            StudyMate
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Controls */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink">
+          {/* Mobile buttons */}
+          <div className="flex items-center gap-2 lg:hidden">
+            {/* 📁 Files button stays active */}
+            <Button
+              size="icon"
+              variant="outline"
+              className="rounded-full border-zinc-200 dark:border-zinc-700"
+              onClick={onShowFilesDrawer}
+              title="Files"
+            >
+              📁
+            </Button>
+
+            {/* ⚙️ Studio button disabled if no files */}
+            <Button
+              size="icon"
+              variant="outline"
+              disabled={!props.sessionHasDocuments}
+              onClick={() => {
+                if (!props.sessionHasDocuments) return;
+                onShowStudioDrawer?.();
+              }}
+              className={
+                props.sessionHasDocuments
+                  ? "rounded-full border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                  : "rounded-full border-zinc-200 dark:border-zinc-700 opacity-50 cursor-not-allowed"
+              }
+              title={
+                props.sessionHasDocuments
+                  ? "Open Studio"
+                  : "Upload a file to unlock Studio tools"
+              }
+            >
+              ⚙️
+            </Button>
+          </div>
+
+          {/* Session Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
                 size="sm"
-                className="hidden rounded-full border-zinc-200 px-4 text-sm font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-100 sm:inline-flex"
+                className="rounded-full border-zinc-200 px-3 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-100 sm:px-4 sm:text-sm"
               >
                 {dropdownLabel}
-                <ChevronDown className="ml-2 h-4 w-4" aria-hidden="true" />
+                <ChevronDown className="ml-1 h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-60" align="center" forceMount>
@@ -262,28 +348,31 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {sessions.length === 0 ? (
-                <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                <DropdownMenuItem
+                  disabled
+                  className="text-xs text-muted-foreground"
+                >
                   No sessions yet
                 </DropdownMenuItem>
               ) : (
-                sessions.map((session) => (
+                sessions.map((s) => (
                   <DropdownMenuItem
-                    key={session.id}
-                    onSelect={() => onSelectSession(session.id)}
+                    key={s.id}
+                    onSelect={() => onSelectSession(s.id)}
                     className={
-                      session.id === selectedSessionId
+                      s.id === selectedSessionId
                         ? "bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
                         : ""
                     }
                   >
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium">{session.name}</span>
-                      {typeof session.documentCount === "number" ? (
+                      <span className="text-sm font-medium">{s.name}</span>
+                      {typeof s.documentCount === "number" && (
                         <span className="text-xs text-muted-foreground">
-                          {session.documentCount} file
-                          {session.documentCount === 1 ? "" : "s"}
+                          {s.documentCount} file
+                          {s.documentCount === 1 ? "" : "s"}
                         </span>
-                      ) : null}
+                      )}
                     </div>
                   </DropdownMenuItem>
                 ))
@@ -291,12 +380,9 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={createDisabled}
-                onSelect={(event) => {
-                  if (createDisabled) {
-                    event.preventDefault();
-                    return;
-                  }
-                  onCreateSession();
+                onSelect={(e) => {
+                  if (createDisabled) e.preventDefault();
+                  else onCreateSession();
                 }}
               >
                 + Create new session
@@ -304,9 +390,20 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Create buttons */}
+          <Button
+            size="icon"
+            className="rounded-full sm:hidden"
+            onClick={onCreateSession}
+            disabled={createDisabled}
+            title="Create session"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+
           <Button
             size="sm"
-            className="rounded-full"
+            className="hidden sm:inline-flex rounded-full"
             onClick={onCreateSession}
             disabled={createDisabled}
           >
@@ -314,6 +411,7 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
             Create Session
           </Button>
 
+          {/* Avatar */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
@@ -329,11 +427,11 @@ export function DashboardHeader(props: CombinedDashboardHeaderProps) {
                   <p className="text-sm font-medium leading-none">
                     {displayName}
                   </p>
-                  {displayEmail ? (
+                  {displayEmail && (
                     <p className="text-xs leading-none text-muted-foreground">
                       {displayEmail}
                     </p>
-                  ) : null}
+                  )}
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

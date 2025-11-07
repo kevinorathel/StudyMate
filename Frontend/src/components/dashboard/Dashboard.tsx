@@ -29,10 +29,7 @@ import { API_BASE_URL } from "@/config";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
-const QUICK_PROMPTS = [
-  "Summarize key ideas",
-  "Create 15 flashcards",
-];
+//const QUICK_PROMPTS = ["Summarize key ideas", "Create 15 flashcards"];
 
 const MAX_FLASHCARDS = 15;
 
@@ -412,6 +409,8 @@ export default function Dashboard() {
   const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = React.useState(false);
   const [sessionsError, setSessionsError] = React.useState<string | null>(null);
+  const [showFilesDrawer, setShowFilesDrawer] = React.useState(false);
+  const [showStudioDrawer, setShowStudioDrawer] = React.useState(false);
   const [selectedSessionId, setSelectedSessionId] = React.useState<
     number | null
   >(null);
@@ -434,8 +433,9 @@ export default function Dashboard() {
   const [isFlashcardModalOpen, setIsFlashcardModalOpen] = React.useState(false);
   const [flashcards, setFlashcards] = React.useState<Flashcard[]>([]);
   const [flashcardsLoading, setFlashcardsLoading] = React.useState(false);
-  const [flashcardsError, setFlashcardsError] =
-    React.useState<string | null>(null);
+  const [flashcardsError, setFlashcardsError] = React.useState<string | null>(
+    null
+  );
   const [flippedCardIds, setFlippedCardIds] = React.useState<
     Record<string, boolean>
   >({});
@@ -450,10 +450,7 @@ export default function Dashboard() {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
 
-  React.useEffect(
-    () => saveNotesToStorage(notesBySession),
-    [notesBySession]
-  );
+  React.useEffect(() => saveNotesToStorage(notesBySession), [notesBySession]);
 
   const userId = React.useMemo<number | null>(() => {
     const state = location.state as { user_id?: unknown } | null;
@@ -584,16 +581,13 @@ export default function Dashboard() {
   }, [selectedSessionId, messagesBySession]);
 
   const messages =
-    selectedSessionId != null
-      ? messagesBySession[selectedSessionId] ?? []
-      : [];
+    selectedSessionId != null ? messagesBySession[selectedSessionId] ?? [] : [];
 
   React.useEffect(() => {
     if (!chatContainerRef.current) {
       return;
     }
-    chatContainerRef.current.scrollTop =
-      chatContainerRef.current.scrollHeight;
+    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
   }, [selectedSessionId, messages, isThinking]);
 
   const currentSession = React.useMemo(
@@ -602,6 +596,7 @@ export default function Dashboard() {
   );
   const sessionDocuments = currentSession?.documents ?? [];
   const sessionHasDocuments = sessionDocuments.length > 0;
+  const studioDisabled = !sessionHasDocuments;
 
   const hasSessions = sessions.length > 0;
   const chatDisabled =
@@ -639,11 +634,11 @@ export default function Dashboard() {
       return;
     }
 
-    const tempSessionId = Date.now() * -1; 
+    const tempSessionId = Date.now() * -1;
     const tempSession: SessionSummary = {
       id: tempSessionId,
-      name: "New Session", 
-      documents: [], 
+      name: "New Session",
+      documents: [],
     };
 
     setSessions((prev) => [tempSession, ...prev]); // Add to the beginning of sessions
@@ -721,7 +716,9 @@ export default function Dashboard() {
         if (resultingSessionId != null && successfulUploads > 0) {
           // If a temporary session was active, remove it from the state
           if (selectedSessionId !== null && selectedSessionId < 0) {
-            setSessions((prev) => prev.filter((s) => s.id !== selectedSessionId));
+            setSessions((prev) =>
+              prev.filter((s) => s.id !== selectedSessionId)
+            );
           }
           setSelectedSessionId(resultingSessionId);
           setMessagesBySession((prev) => ({
@@ -746,9 +743,7 @@ export default function Dashboard() {
             )}.`
           );
         } else {
-          window.alert(
-            "Your document has been processed successfully!"
-          );
+          window.alert("Your document has been processed successfully!");
         }
       } catch (error) {
         console.error("Upload failed:", error);
@@ -949,21 +944,21 @@ export default function Dashboard() {
     [chatDisabled, chatInput, sendMessage]
   );
 
-  const handleQuickPrompt = React.useCallback(
-    (prompt: string) => {
-      const normalized = prompt.trim().toLowerCase();
-      if (normalized.includes("flashcard")) {
-        handleFlashcardsClick();
-        return;
-      }
+  // const handleQuickPrompt = React.useCallback(
+  //   (prompt: string) => {
+  //     const normalized = prompt.trim().toLowerCase();
+  //     if (normalized.includes("flashcard")) {
+  //       handleFlashcardsClick();
+  //       return;
+  //     }
 
-      if (chatDisabled) {
-        return;
-      }
-      sendMessage(prompt);
-    },
-    [chatDisabled, sendMessage, handleFlashcardsClick]
-  );
+  //     if (chatDisabled) {
+  //       return;
+  //     }
+  //     sendMessage(prompt);
+  //   },
+  //   [chatDisabled, sendMessage, handleFlashcardsClick]
+  // );
 
   React.useEffect(() => {
     if (
@@ -979,7 +974,7 @@ export default function Dashboard() {
     selectedSessionId != null ? notesBySession[selectedSessionId] ?? "" : "";
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-zinc-900 dark:bg-[#0f1015] dark:text-zinc-100 antialiased">
+    <div className="flex min-h-screen flex-col overflow-hidden bg-[#f5f7fb] text-zinc-900 dark:bg-[#0f1015] dark:text-zinc-100 antialiased">
       <DashboardHeader
         onCreateSession={handleCreateSessionClick}
         createDisabled={isUploading}
@@ -991,6 +986,10 @@ export default function Dashboard() {
         selectedSessionId={selectedSessionId}
         onSelectSession={handleSelectSessionFromHeader}
         sessionsLoading={sessionsLoading}
+        onShowFilesDrawer={() => setShowFilesDrawer(true)}
+        onShowStudioDrawer={() => setShowStudioDrawer(true)}
+        // 🆕 add this line ↓
+        sessionHasDocuments={sessionHasDocuments}
       />
 
       <input
@@ -1002,8 +1001,283 @@ export default function Dashboard() {
         onChange={handleFileSelection}
       />
 
-      <main className="flex h-[calc(100vh-114px)] gap-4 p-4">
-        <div className="w-64 space-y-4">
+      <main
+        className="
+    relative
+    flex
+    h-[calc(100vh-114px)]
+    overflow-hidden
+    p-4
+    gap-4
+    lg:gap-6
+    flex-col
+    lg:flex-row
+  "
+      >
+        {/* ---------- MOBILE DRAWER TRIGGERS ( < 1024px ) ----------
+        <div className="lg:hidden absolute top-3 left-4 z-20 flex gap-2">
+          <button
+            onClick={() => setShowFilesDrawer(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 shadow"
+            title="Files"
+          >
+            📁
+          </button>
+        </div>
+        <div className="lg:hidden absolute top-3 right-4 z-20 flex gap-2">
+          <button
+            onClick={() => setShowStudioDrawer(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 shadow"
+            title="Studio"
+          >
+            ⚙️
+          </button>
+        </div> */}
+
+        {/* ---------- MOBILE FILES DRAWER ---------- */}
+        {showFilesDrawer && (
+          <div className="fixed inset-0 z-40 flex">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setShowFilesDrawer(false)}
+            />
+            <div className="relative z-50 w-full max-w-full bg-white dark:bg-zinc-900 flex flex-col h-full animate-slideInLeft">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
+                <h2 className="text-lg font-semibold">📁 Files</h2>
+                <button
+                  onClick={() => setShowFilesDrawer(false)}
+                  className="text-2xl leading-none text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {sessionsError ? (
+                  <p className="text-xs text-red-500">{sessionsError}</p>
+                ) : !hasSessions ? (
+                  <p className="text-sm text-muted-foreground">
+                    Create a session from the header to start uploading study
+                    materials.
+                  </p>
+                ) : currentSession == null ? (
+                  <p className="text-sm text-muted-foreground">
+                    Select a session to view its files.
+                  </p>
+                ) : sessionDocuments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No files uploaded yet. Use the button below to add notebooks
+                    to this session.
+                  </p>
+                ) : (
+                  sessionDocuments.map((doc: SessionDocument) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                      title={doc.title}
+                    >
+                      <span className="truncate">{doc.title}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="p-4 border-t border-zinc-200 dark:border-zinc-800">
+                <Button
+                  className="w-full rounded-2xl"
+                  onClick={handleAddNotebookClick}
+                  disabled={isUploading}
+                >
+                  + Add Notebook
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- MOBILE STUDIO DRAWER ---------- */}
+        {showStudioDrawer && (
+          <div className="fixed inset-0 z-40 flex justify-end">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setShowStudioDrawer(false)}
+            />
+            <div className="relative z-50 w-full max-w-full bg-white dark:bg-zinc-900 flex flex-col h-full animate-slideInRight">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
+                <h2 className="text-lg font-semibold">⚙️ Studio</h2>
+                <button
+                  onClick={() => setShowStudioDrawer(false)}
+                  className="text-2xl leading-none text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                <div>
+                  <p className="text-[12px] text-zinc-500 dark:text-zinc-400 mb-3">
+                    Create new content powered by your session files
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[
+                      {
+                        label: "Audio Overview",
+                        icon: "💡",
+                        color:
+                          "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+                        onClick: async () => {
+                          if (studioDisabled) return;
+                          if (selectedSessionId === null) {
+                            window.alert("Please select a session first.");
+                            return;
+                          }
+                          setIsGeneratingAudio(true);
+                          setAudioError(null);
+                          try {
+                            const filename = await generateAudioLesson(
+                              selectedSessionId
+                            );
+                            window.alert(
+                              `Audio lesson "${filename}" downloaded successfully!`
+                            );
+                          } catch (error) {
+                            setAudioError((error as Error).message);
+                            window.alert(
+                              `Error generating audio: ${
+                                (error as Error).message
+                              }`
+                            );
+                          } finally {
+                            setIsGeneratingAudio(false);
+                          }
+                        },
+                      },
+                      {
+                        label: "Video Overview",
+                        icon: "🎬",
+                        color:
+                          "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300",
+                      },
+                      {
+                        label: "Summary Notes",
+                        icon: "📝",
+                        color:
+                          "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
+                        onClick: async () => {
+                          if (studioDisabled) return;
+                          if (selectedSessionId === null) {
+                            window.alert("Please select a session first.");
+                            return;
+                          }
+                          setIsGeneratingSummary(true);
+                          setSummaryError(null);
+                          try {
+                            await generateSessionSummary(selectedSessionId);
+                            window.alert(
+                              "Session summary PDF downloaded successfully!"
+                            );
+                          } catch (error) {
+                            setSummaryError((error as Error).message);
+                            window.alert(
+                              `Error generating summary: ${
+                                (error as Error).message
+                              }`
+                            );
+                          } finally {
+                            setIsGeneratingSummary(false);
+                          }
+                        },
+                      },
+                      {
+                        label: "Flashcards",
+                        icon: "🧠",
+                        color:
+                          "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300",
+                        onClick: () => {
+                          if (studioDisabled) return;
+                          handleFlashcardsClick();
+                        },
+                      },
+                    ].map((tile) => (
+                      <button
+                        key={tile.label}
+                        className={cn(
+                          "flex flex-col items-center justify-center gap-1 rounded-xl py-4 text-[13px] font-medium transition-all min-h-[90px]",
+                          tile.color,
+                          studioDisabled
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:shadow-sm cursor-pointer"
+                        )}
+                        onClick={
+                          tile.onClick ??
+                          (() => window.alert(`${tile.label} is coming soon`))
+                        }
+                        disabled={
+                          studioDisabled ||
+                          (isGeneratingAudio &&
+                            tile.label === "Audio Overview") ||
+                          (isGeneratingSummary &&
+                            tile.label === "Summary Notes") ||
+                          (flashcardsLoading && tile.label === "Flashcards")
+                        }
+                        title={
+                          studioDisabled
+                            ? "Upload a file to unlock Studio tools"
+                            : tile.label
+                        }
+                      >
+                        {isGeneratingAudio &&
+                        tile.label === "Audio Overview" ? (
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
+                        ) : isGeneratingSummary &&
+                          tile.label === "Summary Notes" ? (
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
+                        ) : flashcardsLoading && tile.label === "Flashcards" ? (
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-rose-700 border-t-transparent dark:border-rose-300 dark:border-t-transparent" />
+                        ) : (
+                          <span className="text-lg">{tile.icon}</span>
+                        )}
+                        <span>
+                          {isGeneratingAudio && tile.label === "Audio Overview"
+                            ? "Generating Audio..."
+                            : isGeneratingSummary &&
+                              tile.label === "Summary Notes"
+                            ? "Generating Summary..."
+                            : flashcardsLoading && tile.label === "Flashcards"
+                            ? "Loading Flashcards..."
+                            : tile.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-sm font-medium">My Notes</h4>
+                  <textarea
+                    value={notesForSession}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (selectedSessionId == null) return;
+                      setNotesBySession((prev) => ({
+                        ...prev,
+                        [selectedSessionId]: next,
+                      }));
+                    }}
+                    disabled={selectedSessionId == null}
+                    className="w-full min-h-[140px] resize-none rounded-xl border border-zinc-200/60 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 text-sm text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 shadow-sm focus:outline-none focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-600"
+                    placeholder={
+                      selectedSessionId == null
+                        ? "Select a session to start taking notes…"
+                        : "Type or paste your notes..."
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- DESKTOP LEFT (FILES) ---------- */}
+        <section className="hidden lg:block lg:w-[20%] lg:flex-none space-y-4 overflow-y-auto pr-1">
           <Card className="h-fit rounded-2xl border border-zinc-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <CardHeader className="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
               <div className="flex items-baseline justify-between">
@@ -1023,7 +1297,8 @@ export default function Dashboard() {
                 <p className="text-xs text-red-500">{sessionsError}</p>
               ) : !hasSessions ? (
                 <p className="text-xs text-muted-foreground">
-                  Create a session from the header to start uploading study materials.
+                  Create a session from the header to start uploading study
+                  materials.
                 </p>
               ) : currentSession == null ? (
                 <p className="text-xs text-muted-foreground">
@@ -1031,7 +1306,8 @@ export default function Dashboard() {
                 </p>
               ) : sessionDocuments.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No files uploaded yet. Use the button below to add notebooks to this session.
+                  No files uploaded yet. Use the button below to add notebooks
+                  to this session.
                 </p>
               ) : (
                 sessionDocuments.map((doc: SessionDocument) => (
@@ -1054,171 +1330,185 @@ export default function Dashboard() {
           >
             + Add Notebook
           </Button>
-        </div>
+        </section>
 
-        <div className="flex flex-1 flex-col space-y-4">
-          <Card className="flex flex-1 flex-col h-full rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <CardHeader className="border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                <MessageSquare className="h-4 w-4 text-blue-500" />
-                Smart QnA
-              </div>
-              {currentSession ? (
-                <p className="text-xs text-muted-foreground">
-                  Asking about “{currentSession.name}”
-                </p>
-              ) : null}
-            </CardHeader>
+        {/* ---------- CENTER CHAT (scrollable feed, fixed input) ---------- */}
+        <section
+          className="
+    relative
+    flex-1 lg:flex-[3]
+    flex flex-col
+    bg-white dark:bg-zinc-900
+    overflow-hidden
+  "
+        >
+          {/* DESKTOP HEADER ONLY */}
+          <div className="hidden lg:block border-b border-zinc-100 dark:border-zinc-800 px-5 py-2 sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+              <MessageSquare className="h-4 w-4 text-blue-500" />
+              <span>Smart QnA</span>
+            </div>
+            {currentSession && (
+              <p className="text-xs text-muted-foreground">
+                Asking about “{currentSession.name}”
+              </p>
+            )}
+          </div>
 
-            <CardContent className="flex flex-1 flex-col h-full gap-4 px-5 pb-5 pt-4">
-              <div
-                ref={chatContainerRef}
-                className="h-[400px] overflow-y-auto space-y-3 rounded-xl border border-zinc-200 bg-[#f7f8fc] p-3 dark:border-zinc-700 dark:bg-[#161821] min-h-0"
-              >
-                {!hasSessions ? (
-                  <p className="text-sm text-muted-foreground">
-                    Upload your first document to create a session and start
-                    chatting with StudyMate.
-                  </p>
-                ) : selectedSessionId === null ? (
-                  <p className="text-sm text-muted-foreground">
-                    Select a session to view its chat history.
-                  </p>
-                ) : !sessionHasDocuments ? (
-                  <p className="text-sm text-muted-foreground">
-                    Upload at least one notebook to this session to enable QnA.
-                  </p>
-                ) : chatLoading ? (
-                  <p className="text-sm text-muted-foreground">
-                    Loading chat history…
-                  </p>
-                ) : messages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Ask a question about your uploaded files to begin.
-                  </p>
-                ) : (
-                  messages.map((message) => {
-                    const isUser = message.sender === "user";
-                    const flashcardPayload = !isUser
-                      ? detectFlashcardPayload(message.text)
-                      : [];
-                    const showFlashcardPreview =
-                      flashcardPayload.length > 0 &&
-                      flashcardPayload.every(
-                        (card) => card.question && card.answer
-                      );
+          {/* CHAT FEED (independent scroll area) */}
+          <div
+            ref={chatContainerRef}
+            className="
+      flex-1
+      overflow-y-auto
+      px-4 lg:px-5 pt-4 pb-28
+      space-y-3
+      scroll-smooth
+      bg-white dark:bg-zinc-900
+    "
+          >
+            {!hasSessions ? (
+              <p className="text-sm text-muted-foreground">
+                Upload your first document to create a session and start
+                chatting with StudyMate.
+              </p>
+            ) : selectedSessionId === null ? (
+              <p className="text-sm text-muted-foreground">
+                Select a session to view its chat history.
+              </p>
+            ) : !sessionHasDocuments ? (
+              <p className="text-sm text-muted-foreground">
+                Upload at least one notebook to this session to enable QnA.
+              </p>
+            ) : chatLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Loading chat history…
+              </p>
+            ) : messages.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ask a question about your uploaded files to begin.
+              </p>
+            ) : (
+              messages.map((message) => {
+                const isUser = message.sender === "user";
+                const flashcardPayload = !isUser
+                  ? detectFlashcardPayload(message.text)
+                  : [];
+                const showFlashcardPreview =
+                  flashcardPayload.length > 0 &&
+                  flashcardPayload.every(
+                    (card) => card.question && card.answer
+                  );
 
-                    return (
-                      <div
-                        key={message.id}
-                        className={cn(
-                          "flex flex-col",
-                          isUser ? "items-end" : "items-start"
-                        )}
-                      >
-                        <span className="text-xs uppercase text-zinc-400">
-                          {isUser ? "You" : "StudyMate"}
-                        </span>
-                        <div
-                          className={cn(
-                            "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
-                            isUser
-                              ? "bg-blue-100 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
-                              : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-                          )}
-                        >
-                          {showFlashcardPreview ? (
-                            <div className="space-y-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-rose-500 dark:text-rose-300">
-                                Flashcards ready
-                              </p>
-                              <div className="space-y-3">
-                                {flashcardPayload.map((card, index) => (
-                                  <div
-                                    key={card.id || `${message.id}-card-${index}`}
-                                    className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-xs text-zinc-700 dark:border-rose-900/40 dark:bg-rose-500/10 dark:text-zinc-100"
-                                  >
-                                    <p className="font-semibold text-red-600 dark:text-red-300">
-                                      Q: {card.question}
-                                    </p>
-                                    <p className="mt-1 text-emerald-600 dark:text-emerald-200">
-                                      A: {card.answer}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                                Open the Flashcards popup to study these interactively.
-                              </p>
-                            </div>
-                          ) : (
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {message.text}
-                            </ReactMarkdown>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-                {isThinking && (
-                  <div className="text-xs text-zinc-400">Thinking...</div>
-                )}
-                {chatError && !isThinking ? (
-                  <div className="text-xs text-red-500">{chatError}</div>
-                ) : null}
-              </div>
-
-              {selectedSessionId != null && sessionHasDocuments ? (
-                <div className="flex flex-wrap gap-2">
-                  {QUICK_PROMPTS.map((prompt) => (
-                    <Button
-                      key={prompt}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full border-zinc-200/60 bg-white/60 text-xs dark:border-zinc-700/60 dark:bg-zinc-900/60"
-                      onClick={() => handleQuickPrompt(prompt)}
-                      disabled={chatDisabled}
+                return (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex flex-col",
+                      isUser ? "items-end" : "items-start"
+                    )}
+                  >
+                    <span className="text-xs uppercase text-zinc-400">
+                      {isUser ? "You" : "StudyMate"}
+                    </span>
+                    <div
+                      className={cn(
+                        "max-w-[85%] lg:max-w-[90%] rounded-2xl px-4 py-2 text-sm",
+                        isUser
+                          ? "bg-blue-100 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
+                          : "bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                      )}
                     >
-                      {prompt}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
+                      {showFlashcardPreview ? (
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-rose-500 dark:text-rose-300">
+                            Flashcards ready
+                          </p>
+                          <div className="space-y-3">
+                            {flashcardPayload.map((card, index) => (
+                              <div
+                                key={card.id || `${message.id}-card-${index}`}
+                                className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-xs text-zinc-700 dark:border-rose-900/40 dark:bg-rose-500/10 dark:text-zinc-100"
+                              >
+                                <p className="font-semibold text-red-600 dark:text-red-300">
+                                  Q: {card.question}
+                                </p>
+                                <p className="mt-1 text-emerald-600 dark:text-emerald-200">
+                                  A: {card.answer}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.text}
+                        </ReactMarkdown>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
 
-              <form
-                onSubmit={handleSubmit}
-                className="mt-auto flex items-end gap-2"
+            {isThinking && (
+              <div className="text-xs text-zinc-400">Thinking...</div>
+            )}
+            {chatError && !isThinking && (
+              <div className="text-xs text-red-500">{chatError}</div>
+            )}
+          </div>
+
+          {/* INPUT BAR (fixed at bottom) */}
+          <div
+            className="
+      pointer-events-auto
+      fixed left-0 right-0 bottom-4
+      px-4
+      lg:static lg:px-0
+      bg-gradient-to-t from-white dark:from-zinc-900
+    "
+          >
+            <form
+              onSubmit={handleSubmit}
+              className="mx-auto flex items-end gap-2 w-full max-w-3xl"
+            >
+              <Input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={
+                  selectedSessionId == null
+                    ? "Create a session to start chatting"
+                    : sessionHasDocuments
+                    ? "Ask about this session…"
+                    : "Upload a notebook to unlock questions"
+                }
+                disabled={chatDisabled}
+                className="flex-1 rounded-2xl bg-white dark:bg-zinc-900"
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="rounded-full"
+                disabled={chatDisabled || !chatInput.trim()}
               >
-                <Input
-                  value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
-                  placeholder={
-                    selectedSessionId == null
-                      ? "Create a session to start chatting"
-                      : sessionHasDocuments
-                      ? "Ask about this session…"
-                      : "Upload a notebook to unlock questions"
-                  }
-                  disabled={chatDisabled}
-                  className="flex-1 rounded-2xl"
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  className="rounded-full"
-                  disabled={chatDisabled || !chatInput.trim()}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+          </div>
+        </section>
 
-        <aside className="w-[320px] flex flex-col bg-[#fafafa] dark:bg-[#111112] border-l border-zinc-100/70 dark:border-zinc-800 overflow-y-auto">
-          <div className="px-5 pt-5 pb-4 border-b rounded border-zinc-100/60 dark:border-zinc-800/60">
+        {/* ---------- DESKTOP RIGHT (STUDIO + NOTES) ---------- */}
+        <aside
+          className="
+    hidden lg:flex
+    lg:w-[20%] lg:flex-none
+    flex-col overflow-y-auto
+    border-l border-zinc-100/70 dark:border-zinc-800
+    pl-1
+  "
+        >
+          <div className="px-5 pt-5 pb-4 border-b border-zinc-100/60 dark:border-zinc-800/60">
             <h2 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">
               Studio
             </h2>
@@ -1226,7 +1516,20 @@ export default function Dashboard() {
               Create new content powered by your session files
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* 🆕 Studio Cards Section (Disabled state handled) */}
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-3 transition-opacity",
+                studioDisabled
+                  ? "opacity-50 pointer-events-none cursor-not-allowed"
+                  : "opacity-100"
+              )}
+              title={
+                studioDisabled
+                  ? "Upload a file to unlock Studio tools"
+                  : undefined
+              }
+            >
               {[
                 {
                   label: "Audio Overview",
@@ -1234,6 +1537,7 @@ export default function Dashboard() {
                   color:
                     "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
                   onClick: async () => {
+                    if (studioDisabled) return;
                     if (selectedSessionId === null) {
                       window.alert("Please select a session first.");
                       return;
@@ -1241,11 +1545,17 @@ export default function Dashboard() {
                     setIsGeneratingAudio(true);
                     setAudioError(null);
                     try {
-                      const filename = await generateAudioLesson(selectedSessionId);
-                      window.alert(`Audio lesson "${filename}" downloaded successfully!`);
+                      const filename = await generateAudioLesson(
+                        selectedSessionId
+                      );
+                      window.alert(
+                        `Audio lesson "${filename}" downloaded successfully!`
+                      );
                     } catch (error) {
                       setAudioError((error as Error).message);
-                      window.alert(`Error generating audio: ${(error as Error).message}`);
+                      window.alert(
+                        `Error generating audio: ${(error as Error).message}`
+                      );
                     } finally {
                       setIsGeneratingAudio(false);
                     }
@@ -1263,6 +1573,7 @@ export default function Dashboard() {
                   color:
                     "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
                   onClick: async () => {
+                    if (studioDisabled) return;
                     if (selectedSessionId === null) {
                       window.alert("Please select a session first.");
                       return;
@@ -1271,10 +1582,14 @@ export default function Dashboard() {
                     setSummaryError(null);
                     try {
                       await generateSessionSummary(selectedSessionId);
-                      window.alert("Session summary PDF downloaded successfully!");
+                      window.alert(
+                        "Session summary PDF downloaded successfully!"
+                      );
                     } catch (error) {
                       setSummaryError((error as Error).message);
-                      window.alert(`Error generating summary: ${(error as Error).message}`);
+                      window.alert(
+                        `Error generating summary: ${(error as Error).message}`
+                      );
                     } finally {
                       setIsGeneratingSummary(false);
                     }
@@ -1290,35 +1605,33 @@ export default function Dashboard() {
               ].map((tile) => (
                 <button
                   key={tile.label}
-                  className={`flex flex-col items-center justify-center gap-1 rounded-xl py-4 text-[13px] font-medium ${tile.color} hover:shadow-sm transition-all`}
-                  onClick={tile.onClick ?? (() => window.alert(`${tile.label} is coming soon`))}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-1 rounded-xl py-4 text-[13px] font-medium transition-all",
+                    tile.color,
+                    studioDisabled ? "cursor-not-allowed" : "hover:shadow-sm"
+                  )}
+                  onClick={tile.onClick}
                   disabled={
+                    studioDisabled ||
                     (isGeneratingAudio && tile.label === "Audio Overview") ||
                     (isGeneratingSummary && tile.label === "Summary Notes") ||
                     (flashcardsLoading && tile.label === "Flashcards")
                   }
                 >
-                  {(isGeneratingAudio && tile.label === "Audio Overview") ? (
+                  {isGeneratingAudio && tile.label === "Audio Overview" ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
-                  ) : (isGeneratingSummary && tile.label === "Summary Notes") ? (
+                  ) : isGeneratingSummary && tile.label === "Summary Notes" ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
-                  ) : (flashcardsLoading && tile.label === "Flashcards") ? (
+                  ) : flashcardsLoading && tile.label === "Flashcards" ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-rose-700 border-t-transparent dark:border-rose-300 dark:border-t-transparent" />
                   ) : (
                     <span className="text-lg">{tile.icon}</span>
                   )}
-                  <span>
-                    {(isGeneratingAudio && tile.label === "Audio Overview")
-                      ? "Generating Audio..."
-                      : (isGeneratingSummary && tile.label === "Summary Notes")
-                      ? "Generating Summary..."
-                      : (flashcardsLoading && tile.label === "Flashcards")
-                      ? "Loading Flashcards..."
-                      : tile.label}
-                  </span>
+                  <span>{tile.label}</span>
                 </button>
               ))}
             </div>
+
             {audioError && (
               <p className="text-xs text-red-500 mt-2">{audioError}</p>
             )}
@@ -1327,6 +1640,7 @@ export default function Dashboard() {
             )}
           </div>
 
+          {/* Notes Section */}
           <div className="px-5 py-5">
             <h3 className="text-sm font-medium text-zinc-800 dark:text-zinc-200 mb-2">
               My Notes
@@ -1338,9 +1652,7 @@ export default function Dashboard() {
               value={notesForSession}
               onChange={(event) => {
                 const next = event.target.value;
-                if (selectedSessionId == null) {
-                  return;
-                }
+                if (selectedSessionId == null) return;
                 setNotesBySession((prev) => ({
                   ...prev,
                   [selectedSessionId]: next,
@@ -1413,63 +1725,63 @@ export default function Dashboard() {
                         <button
                           key={card.id}
                           type="button"
-                        onClick={() => handleFlashcardFlip(card.id)}
-                        className={cn(
-                          "relative h-44 w-full overflow-hidden rounded-2xl text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2",
-                          flipped
-                            ? "border border-emerald-200 bg-emerald-50/70 focus:ring-emerald-200 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:focus:ring-emerald-700"
-                            : "border border-red-200 bg-red-100/70 focus:ring-red-200 dark:border-red-900/40 dark:bg-red-500/20 dark:focus:ring-red-700"
-                        )}
-                        style={{ perspective: "1200px" }}
-                      >
-                        <span className="sr-only">
-                          Reveal answer for {card.question}
-                        </span>
-                        <div
-                          className="absolute inset-0 h-full w-full"
-                          style={{
-                            transformStyle: "preserve-3d",
-                            transition: "transform 0.6s",
-                            transform: flipped
-                              ? "rotateY(180deg)"
-                              : "rotateY(0deg)",
-                          }}
+                          onClick={() => handleFlashcardFlip(card.id)}
+                          className={cn(
+                            "relative h-44 w-full overflow-hidden rounded-2xl text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2",
+                            flipped
+                              ? "border border-emerald-200 bg-emerald-50/70 focus:ring-emerald-200 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:focus:ring-emerald-700"
+                              : "border border-red-200 bg-red-100/70 focus:ring-red-200 dark:border-red-900/40 dark:bg-red-500/20 dark:focus:ring-red-700"
+                          )}
+                          style={{ perspective: "1200px" }}
                         >
+                          <span className="sr-only">
+                            Reveal answer for {card.question}
+                          </span>
                           <div
-                            className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-red-100/70 p-4 text-zinc-800 dark:bg-red-500/20 dark:text-zinc-100"
-                            style={{ backfaceVisibility: "hidden" }}
-                          >
-                            <div className="text-xs font-semibold uppercase tracking-wide text-red-500 dark:text-red-300">
-                              Question
-                            </div>
-                            <p className="text-sm font-medium leading-relaxed text-red-600 dark:text-red-300">
-                              {card.question}
-                            </p>
-                            <div className="text-[11px] text-red-400 dark:text-red-300/80">
-                              Tap to show answer
-                            </div>
-                          </div>
-
-                          <div
-                            className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-emerald-100/70 p-4 text-zinc-800 dark:bg-emerald-500/20 dark:text-zinc-100"
+                            className="absolute inset-0 h-full w-full"
                             style={{
-                              backfaceVisibility: "hidden",
-                              transform: "rotateY(180deg)",
+                              transformStyle: "preserve-3d",
+                              transition: "transform 0.6s",
+                              transform: flipped
+                                ? "rotateY(180deg)"
+                                : "rotateY(0deg)",
                             }}
                           >
-                            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-200">
-                              Answer
+                            <div
+                              className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-red-100/70 p-4 text-zinc-800 dark:bg-red-500/20 dark:text-zinc-100"
+                              style={{ backfaceVisibility: "hidden" }}
+                            >
+                              <div className="text-xs font-semibold uppercase tracking-wide text-red-500 dark:text-red-300">
+                                Question
+                              </div>
+                              <p className="text-sm font-medium leading-relaxed text-red-600 dark:text-red-300">
+                                {card.question}
+                              </p>
+                              <div className="text-[11px] text-red-400 dark:text-red-300/80">
+                                Tap to show answer
+                              </div>
                             </div>
-                            <p className="text-sm leading-relaxed text-emerald-700 dark:text-emerald-200">
-                              {card.answer}
-                            </p>
-                            <div className="text-[11px] text-emerald-500 dark:text-emerald-200/70">
-                              Tap to go back
+
+                            <div
+                              className="absolute inset-0 flex h-full w-full flex-col justify-between rounded-2xl bg-emerald-100/70 p-4 text-zinc-800 dark:bg-emerald-500/20 dark:text-zinc-100"
+                              style={{
+                                backfaceVisibility: "hidden",
+                                transform: "rotateY(180deg)",
+                              }}
+                            >
+                              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-200">
+                                Answer
+                              </div>
+                              <p className="text-sm leading-relaxed text-emerald-700 dark:text-emerald-200">
+                                {card.answer}
+                              </p>
+                              <div className="text-[11px] text-emerald-500 dark:text-emerald-200/70">
+                                Tap to go back
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
-                    );
+                        </button>
+                      );
                     })}
                   </div>
                 </div>
