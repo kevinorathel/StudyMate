@@ -22,6 +22,8 @@ from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, generate_respons
 from AudioGen import summarize_chunk, generate_continued_script, generate_initial_script, text_to_speech, \
     cleanup_directory
 
+import json
+from VideoGen import generate_video_script, script_to_video
 
 app = FastAPI(title="StudyMate API")
 
@@ -571,7 +573,35 @@ async def generate_session_flashcards(session_id: int):
         )
 
 
+# Request body model
+class VideoRequest(BaseModel):
+    document_id: int
+
+# Response model
+class VideoResponse(BaseModel):
+    filename: str
+
+@app.post("/generateVideo", response_model=VideoResponse)
+async def generate_video(request: VideoRequest):
+    try:
+        # Generate JSON slides for the document
+        json_slides = generate_video_script(request.document_id)
+
+        # Ensure valid JSON array
+        if not json_slides.strip().startswith("["):
+            json_slides = f"[{json_slides}]"
+
+        slides = json.loads(json_slides)
+
+        # Generate video from slides
+        filename = script_to_video(slides)
+
+        return VideoResponse(filename=filename)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {e}")
+    
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-
 
