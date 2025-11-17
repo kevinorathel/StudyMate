@@ -7,8 +7,15 @@ import re
 
 from dbconnect import get_cursor
 
+import os
+from dotenv import load_dotenv
 
-genai.configure(api_key="AIzaSyD7ITCowOXMl89hNQ_Xmco9gZogR6h-g2s")
+# Load environment variables from .env
+load_dotenv()
+
+gemini_api_key = os.environ["GEMINI_API_KEY"]
+
+genai.configure(api_key=gemini_api_key)
 
 
 def fetch_pdf_from_db(document_id):

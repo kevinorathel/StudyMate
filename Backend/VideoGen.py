@@ -15,6 +15,14 @@ from ScriptGen import generate_video_script
 import os
 import shutil
 
+from dotenv import load_dotenv
+
+#Load environment variables from .env
+load_dotenv()
+
+nebius_api_key = os.environ["NEBIUS_API_KEY"]
+
+
 def ensure_empty_dir(path):
     """
     Ensure a directory exists and is empty.
@@ -29,7 +37,7 @@ def ensure_empty_dir(path):
 # === Setup HuggingFace Nebius client ===
 client = InferenceClient(
     provider="nebius",
-    api_key="v1.CmQKHHN0YXRpY2tleS1lMDBkN2RqdDByMGFlNW03ZDMSIXNlcnZpY2VhY2NvdW50LWUwMGpxM2g5czRlZ3ZldmFlcDIMCLbMzsgGEMObrOABOgwItc_mkwcQwMmnzQJAAloDZTAw.AAAAAAAAAAFXdeAZCSTVOvN2BFnWKfG2-Fkt7y520sablSG4vep-8jUYWNJ4BRDlMGpPs_2Hz4sp-P9LOOafV8Ny5nyCpBQP"  # <-- Add your key here
+    api_key=nebius_api_key  # <-- Add your key here
 )
 
 
