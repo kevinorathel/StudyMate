@@ -7,6 +7,10 @@ from sentence_transformers import SentenceTransformer
 import urllib.parse
 import google.generativeai as genai
 
+
+# Load environment variables from .env
+load_dotenv()
+
 gemini_api_key = os.environ["GEMINI_API_KEY"]
 pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_PATH"]
 poppler_path = os.environ["POPPLER_PATH"]

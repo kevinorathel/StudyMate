@@ -3,14 +3,20 @@ import psycopg2
 from pgvector.psycopg2 import register_vector
 from contextlib import contextmanager
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
 
 @contextmanager
 def get_cursor():
     conn = psycopg2.connect(
-        dbname="study_db_hlh8",
-        user="root",
-        password="7jmM6QXxiXQDkdvon446ftlYVaixWqoL",
-        host="dpg-d3onbjmmcj7s739ebggg-a.virginia-postgres.render.com",
+        dbname=os.environ["DATABASE_NAME"],
+        user=os.environ["DATABASE_USER"],
+        password=os.environ["DATABASE_PASSWORD"],
+        host=os.environ["DATABASE_HOST"],
         port="5432",
         sslmode="require"
     )
@@ -23,7 +29,3 @@ def get_cursor():
     finally:
         cur.close()
         conn.close()
-
-
-
-
