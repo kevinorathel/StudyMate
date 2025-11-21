@@ -469,8 +469,6 @@ async def generate_audio_lesson(session_id: int):
             file_paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*.mp3")),
                     key=lambda x: int(os.path.basename(x).split('.')[0]))
 
-            combined_audio = AudioSegment.empty()
-
             print(f"\nStitching {len(file_paths)} individual audio files...")
 
             if not os.path.exists(FILLER_AUDIO_PATH):
@@ -479,20 +477,33 @@ async def generate_audio_lesson(session_id: int):
             else:
                 filler_audio = AudioSegment.from_mp3(FILLER_AUDIO_PATH)
 
-            for i, file_path in enumerate(file_paths):
-                print(f"Adding: {os.path.basename(file_path)}")
-
-                chunk_audio = AudioSegment.from_mp3(file_path)
-
-                combined_audio += chunk_audio
-
-                if i < len(file_paths) - 1:
-                    combined_audio += filler_audio
-                    print("   - Added filler audio (page-flip).")
-
             final_output_path = os.path.join(OUTPUT_DIR, FINAL_AUDIO_FILENAME)
 
-            combined_audio.export(final_output_path, format="mp3")
+            if os.path.exists(final_output_path):
+                os.remove(final_output_path)
+
+            first_chunk_audio = AudioSegment.from_mp3(file_paths[0])
+            first_chunk_audio.export(final_output_path, format="mp3")
+            print(f"Added: {os.path.basename(file_paths[0])} (Initial)")
+
+            for i in range(1, len(file_paths)):
+                current_file_path = file_paths[i]
+
+                if i > 0:
+                    temp_combined = AudioSegment.from_file(final_output_path)
+                    temp_combined += filler_audio
+                    temp_combined.export(final_output_path, format="mp3")
+                    print("   - Added filler audio (page-flip).")
+                    del temp_combined
+
+                print(f"Adding: {os.path.basename(current_file_path)}")
+                chunk_audio = AudioSegment.from_mp3(current_file_path)
+
+                temp_combined = AudioSegment.from_file(final_output_path)
+                temp_combined += chunk_audio
+                temp_combined.export(final_output_path, format="mp3")
+                del temp_combined
+                del chunk_audio
 
             print(f"\nAll audios successfully stitched into: {final_output_path}")
 
@@ -573,11 +584,9 @@ async def generate_session_flashcards(session_id: int):
         )
 
 
-# Request body model
 class VideoRequest(BaseModel):
     document_id: int
 
-# Response model
 class VideoResponse(BaseModel):
     filename: str
 
