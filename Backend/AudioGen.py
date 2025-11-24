@@ -1,12 +1,19 @@
+import glob
 import os
 import shutil
 import urllib.parse
+from http.client import HTTPException
+
 import pytesseract
+from django.http import FileResponse
 from pdf2image import convert_from_path
 from google import genai
 from google.cloud import texttospeech
-import io
-import zipfile 
+from pydub import AudioSegment
+from rest_framework import status
+from starlette.background import BackgroundTask
+
+from dbconnect import get_cursor
 
 pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_PATH"]
 POPPLER_PATH = os.environ["POPPLER_PATH"]
@@ -203,53 +210,98 @@ def text_to_speech(text, audio_file, voice_name='en-US-Wavenet-I'):
 
     print(f"Audio content successfully saved to {audio_file}")
 
-# def audiogenmain(file_path: str):
-#
-#     OUTPUT_DIR = "Audio Lessons"
-#
-#     if not os.path.exists(OUTPUT_DIR):
-#
-#         os.makedirs(OUTPUT_DIR)
-#         print(f"Created output directory: {OUTPUT_DIR}")
-#
-#     chunks = read_scanned_pdf_with_chunks(file_path)
-#     print(f"Total chunks extracted: {len(chunks)}")
-#
-#     for i, chunk in enumerate(chunks[:1]):
-#
-#         print(f"\n=== Processing Chunk {i+1} ===\n")
-#         summary = summarize_chunk(chunk)
-#         script = generate_script(summary)
-#         print("Script: \n", script)
-#
-#         base_filename = f"lesson_chunk_{i+1}.mp3"
-#
-#         audio_file = os.path.join(OUTPUT_DIR, base_filename)
-#
-#         text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
-#
-# if __name__ == "__main__":
-#
-#     file_path = r"C:\Users\kevin\OneDrive\Desktop\College\Clark U\Design and Analysis of Algorithms\Chapter 1\1.2 Fundamentals of Algorithmic problem solving.pdf"
-#     OUTPUT_DIR = "Audio Lessons"
-#
-#     if not os.path.exists(OUTPUT_DIR):
-#
-#         os.makedirs(OUTPUT_DIR)
-#         print(f"Created output directory: {OUTPUT_DIR}")
-#
-#     chunks = read_scanned_pdf_with_chunks(file_path)
-#     print(f"Total chunks extracted: {len(chunks)}")
-#
-#     for i, chunk in enumerate(chunks[:1]):
-#
-#         print(f"\n=== Processing Chunk {i+1} ===\n")
-#         summary = summarize_chunk(chunk)
-#         script = generate_script(summary)
-#         print("Script: \n", script)
-#
-#         base_filename = f"lesson_chunk_{i+1}.mp3"
-#
-#         audio_file = os.path.join(OUTPUT_DIR, base_filename)
-#
-#         text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
+def blocking_audio_generation_task(session_id: int):
+    """
+    Synchronously processes the entire audio generation and file stitching process.
+    This function will be run in a background thread.
+    """
+
+    OUTPUT_DIR = "Audio Lessons"
+    FILLER_AUDIO_PATH = "misc/page-flip.mp3"
+    file_to_return = None
+
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+        print(f"Created output directory: {OUTPUT_DIR}")
+
+    try:
+        with get_cursor() as cur:
+            cur.execute("SELECT e.chunk_text FROM embeddings e LEFT JOIN sessiondocuments sd ON sd.document_id  = e.document_id WHERE sd.session_id = %s;", (session_id,))
+            session_chunks = cur.fetchall()
+
+            for i, chunk in enumerate(session_chunks):
+
+                print(f"\nProcessing Chunk {i+1} of {len(session_chunks)}")
+                summary = summarize_chunk(chunk)
+                if(i == 0):
+                    script = generate_initial_script(summary)
+                else:
+                    script = generate_continued_script(summary)
+
+                base_filename = f"{i+1}.mp3"
+
+                audio_file = os.path.join(OUTPUT_DIR, base_filename)
+
+                text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
+
+            print("\nAudios generated for individual chunks! ",)
+
+            cur.execute("SELECT s.session_name FROM sessions s WHERE s.session_id = %s;", (session_id,))
+            session_name = cur.fetchone()
+
+        if session_name:
+            audiofile_name = session_name[0]
+        else:
+            audiofile_name = None
+        FINAL_AUDIO_FILENAME = f"{audiofile_name}.mp3"
+
+        file_paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*.mp3")),
+                key=lambda x: int(os.path.basename(x).split('.')[0]))
+
+        print(f"\nStitching {len(file_paths)} individual audio files...")
+
+        if not os.path.exists(FILLER_AUDIO_PATH):
+            print(f"ERROR: Filler audio not found at {FILLER_AUDIO_PATH}")
+            filler_audio = AudioSegment.empty()
+        else:
+            filler_audio = AudioSegment.from_mp3(FILLER_AUDIO_PATH)
+
+        final_output_path = os.path.join(OUTPUT_DIR, FINAL_AUDIO_FILENAME)
+
+        if os.path.exists(final_output_path):
+            os.remove(final_output_path)
+
+        first_chunk_audio = AudioSegment.from_mp3(file_paths[0])
+        first_chunk_audio.export(final_output_path, format="mp3")
+        print(f"Added: {os.path.basename(file_paths[0])} (Initial)")
+
+        for i in range(1, len(file_paths)):
+            current_file_path = file_paths[i]
+
+            if i > 0:
+                temp_combined = AudioSegment.from_file(final_output_path)
+                temp_combined += filler_audio
+                temp_combined.export(final_output_path, format="mp3")
+                print("   - Added filler audio (page-flip).")
+                del temp_combined
+
+            print(f"Adding: {os.path.basename(current_file_path)}")
+            chunk_audio = AudioSegment.from_mp3(current_file_path)
+
+            temp_combined = AudioSegment.from_file(final_output_path)
+            temp_combined += chunk_audio
+            temp_combined.export(final_output_path, format="mp3")
+            del temp_combined
+            del chunk_audio
+
+        print(f"\nAll audios successfully stitched into: {final_output_path}")
+
+        return final_output_path, FINAL_AUDIO_FILENAME
+
+    except Exception as e:
+            print(f"ERROR: Audio generation failed for session {session_id}. Detail: {e}")
+
+            if os.path.exists(OUTPUT_DIR):
+                shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+            return None, None

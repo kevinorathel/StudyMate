@@ -1,13 +1,16 @@
-import shutil
 from typing import Optional, List, Dict
+from urllib import request
 
-from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import uvicorn
+
+import asyncio
+from fastapi import BackgroundTasks, status
+from fastapi.exceptions import HTTPException
 import os
-from pydub import AudioSegment
-import glob
+import shutil
 
 from rest_framework import status
 from sentence_transformers import SentenceTransformer
@@ -19,8 +22,7 @@ from Summarizer import Summarizer_main, db_connection
 from dbconnect import get_cursor
 import bcrypt
 from PDFUtil import read_scanned_pdf, chunk_text, embed_chunks, generate_response, generate_session_name
-from AudioGen import summarize_chunk, generate_continued_script, generate_initial_script, text_to_speech, \
-    cleanup_directory
+from AudioGen import cleanup_directory, blocking_audio_generation_task
 
 import json
 from VideoGen import generate_video_script, script_to_video
@@ -51,6 +53,15 @@ class AskRequest(BaseModel):
     session_id: int
     question: str
 
+class sessionIdRequest(BaseModel):
+    session_id: int
+
+class VideoRequest(BaseModel):
+    document_id: int
+
+class VideoResponse(BaseModel):
+    filename: str
+
 def cleanup_file_and_dir(file_path: str, dir_path: str):
     """Deletes the file and the temporary directory."""
     try:
@@ -61,6 +72,7 @@ def cleanup_file_and_dir(file_path: str, dir_path: str):
         print(f"Cleaned up temporary summary directory: {dir_path}")
     except Exception as e:
         print(f"Error during file cleanup: {e}")
+
 
 @app.get("/TestAPI", status_code=status.HTTP_200_OK)
 async def test_api():
@@ -409,124 +421,39 @@ async def getSessions(user_id: int):
 
     return {"session_data": session_data}
 
-@app.get("/generateAudioLesson", status_code=status.HTTP_200_OK)
-async def generate_audio_lesson(session_id: int):
+@app.post("/generateAudioLesson", status_code=status.HTTP_202_ACCEPTED)
+async def generate_audio_lesson(request: sessionIdRequest):
     """
-    Processes a scanned PDF, generates multiple MP3 audio lessons,
-    and returns them bundled as a single ZIP file.
+    Starts the audio generation task in a background thread.
+    Returns a 202 Accepted status immediately.
     """
-
-    OUTPUT_DIR = "Audio Lessons"
-    FILLER_AUDIO_PATH = "misc/page-flip.mp3"
-
-    if not os.path.exists(OUTPUT_DIR):
-
-        os.makedirs(OUTPUT_DIR)
-        print(f"Created output directory: {OUTPUT_DIR}")
-
+    session_id = request.session_id
     try:
-        with get_cursor() as cur:
+        final_output_path, FINAL_AUDIO_FILENAME = await asyncio.to_thread(
+            blocking_audio_generation_task, session_id
+        )
 
-            cur.execute(
-                "SELECT e.chunk_text " 
-                "FROM embeddings e "
-                "LEFT JOIN sessiondocuments sd ON sd.document_id  = e.document_id "
-                "WHERE sd.session_id = %s;",
-                (session_id,)
-            )
-            session_chunks = cur.fetchall()
-
-            for i, chunk in enumerate(session_chunks):
-
-                print(f"\nProcessing Chunk {i+1} of {len(session_chunks)}")
-                summary = summarize_chunk(chunk)
-                if(i == 0):
-                    script = generate_initial_script(summary)
-                else:
-                    script = generate_continued_script(summary)
-
-                base_filename = f"{i+1}.mp3"
-
-                audio_file = os.path.join(OUTPUT_DIR, base_filename)
-
-                text_to_speech(script, audio_file, voice_name='en-US-Wavenet-I')
-
-            print("\nAudios generated for individual chunks! ",)
-
-            cur.execute(
-                "SELECT s.session_name "
-                "FROM sessions s "
-                "WHERE s.session_id = %s;",
-                (session_id,)
-            )
-            session_name = cur.fetchone()
-            if session_name:
-                audiofile_name = session_name[0]
-            else:
-                audiofile_name = None
-            FINAL_AUDIO_FILENAME = f"{audiofile_name}.mp3"
-
-            file_paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*.mp3")),
-                    key=lambda x: int(os.path.basename(x).split('.')[0]))
-
-            print(f"\nStitching {len(file_paths)} individual audio files...")
-
-            if not os.path.exists(FILLER_AUDIO_PATH):
-                print(f"ERROR: Filler audio not found at {FILLER_AUDIO_PATH}")
-                filler_audio = AudioSegment.empty()
-            else:
-                filler_audio = AudioSegment.from_mp3(FILLER_AUDIO_PATH)
-
-            final_output_path = os.path.join(OUTPUT_DIR, FINAL_AUDIO_FILENAME)
-
-            if os.path.exists(final_output_path):
-                os.remove(final_output_path)
-
-            first_chunk_audio = AudioSegment.from_mp3(file_paths[0])
-            first_chunk_audio.export(final_output_path, format="mp3")
-            print(f"Added: {os.path.basename(file_paths[0])} (Initial)")
-
-            for i in range(1, len(file_paths)):
-                current_file_path = file_paths[i]
-
-                if i > 0:
-                    temp_combined = AudioSegment.from_file(final_output_path)
-                    temp_combined += filler_audio
-                    temp_combined.export(final_output_path, format="mp3")
-                    print("   - Added filler audio (page-flip).")
-                    del temp_combined
-
-                print(f"Adding: {os.path.basename(current_file_path)}")
-                chunk_audio = AudioSegment.from_mp3(current_file_path)
-
-                temp_combined = AudioSegment.from_file(final_output_path)
-                temp_combined += chunk_audio
-                temp_combined.export(final_output_path, format="mp3")
-                del temp_combined
-                del chunk_audio
-
-            print(f"\nAll audios successfully stitched into: {final_output_path}")
-
-
-            file_to_return = final_output_path
-
-            return FileResponse(
-                path=file_to_return,
-                filename=FINAL_AUDIO_FILENAME,
-                media_type="audio/mpeg",
-                background=BackgroundTask(cleanup_directory, OUTPUT_DIR)
+        if not final_output_path:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Audio generation failed in background task."
             )
 
-    except HTTPException:
-        raise
+        output_dir = os.path.dirname(final_output_path)
+
+        return FileResponse(
+            path=final_output_path,
+            filename=FINAL_AUDIO_FILENAME,
+            media_type="audio/mpeg",
+            background=BackgroundTasks([BackgroundTask(cleanup_directory, output_dir)])
+        )
+
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Audio generation failed.")
-
-    finally:
-        if file_to_return is None and os.path.exists(OUTPUT_DIR):
-            print(f"Error occurred. Attempting cleanup of {OUTPUT_DIR}...")
-            shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+        print(f"Error while running background task: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error scheduling or completing audio generation."
+        )
 
 @app.get("/generateSessionSummary", status_code=status.HTTP_200_OK)
 async def generate_session_summary(session_id: int):
@@ -583,13 +510,6 @@ async def generate_session_flashcards(session_id: int):
             detail=f"An unexpected error occurred during flashcard generation: {e}"
         )
 
-
-class VideoRequest(BaseModel):
-    document_id: int
-
-class VideoResponse(BaseModel):
-    filename: str
-
 @app.post("/generateVideo", response_model=VideoResponse)
 async def generate_video(request: VideoRequest):
     try:
@@ -609,7 +529,7 @@ async def generate_video(request: VideoRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Video generation failed: {e}")
-    
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
