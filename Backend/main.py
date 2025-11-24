@@ -1,5 +1,4 @@
 from typing import Optional, List, Dict
-from urllib import request
 
 from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,9 +51,6 @@ class LoginRequest(BaseModel):
 class AskRequest(BaseModel):
     session_id: int
     question: str
-
-class sessionIdRequest(BaseModel):
-    session_id: int
 
 class VideoRequest(BaseModel):
     document_id: int
@@ -421,13 +417,12 @@ async def getSessions(user_id: int):
 
     return {"session_data": session_data}
 
-@app.post("/generateAudioLesson", status_code=status.HTTP_202_ACCEPTED)
-async def generate_audio_lesson(request: sessionIdRequest):
+@app.get("/generateAudioLesson", status_code=status.HTTP_202_ACCEPTED)
+async def generate_audio_lesson(session_id: int):
     """
     Starts the audio generation task in a background thread.
     Returns a 202 Accepted status immediately.
     """
-    session_id = request.session_id
     try:
         final_output_path, FINAL_AUDIO_FILENAME = await asyncio.to_thread(
             blocking_audio_generation_task, session_id
