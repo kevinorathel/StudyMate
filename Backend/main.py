@@ -143,50 +143,34 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
 
     print("Uploading document and generating vectors...")
 
-    pdf_content_bytes = await file.read()
-
     file_path = f"./uploads/{file.filename}"
     os.makedirs("uploads", exist_ok=True)
-    with open(file_path, "wb") as f:
-        f.write(pdf_content_bytes)
+    pdf_content_bytes = None
 
     try:
+        with open(file_path, "wb") as f:
+            while chunk := await file.read(8192):
+                f.write(chunk)
+
         text = read_scanned_pdf(file_path)
         chunks = chunk_text(text, chunk_size=200, overlap=50)
         vectors = embed_chunks(chunks)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF processing failed: {e}"
-        )
 
-    try:
+        with open(file_path, "rb") as f:
+            pdf_content_bytes = f.read()
+
         with get_cursor() as cur:
-
             cur.execute(
                 "INSERT INTO document (document_title, pdf_content, user_id) VALUES (%s, %s, %s) RETURNING document_id;",
                 (file.filename, pdf_content_bytes, user_id)
             )
             documentResult = cur.fetchone()
-
-            if not documentResult:
-                raise Exception("Failed to retrieve document ID after insertion.")
-
             document_id = documentResult[0]
-            print(f"Document uploaded with ID: {document_id}")
-
-            print(f"Inserting {len(vectors)} vectors into embeddings table...")
 
             data_to_insert = [
-                (
-                    document_id,
-                    i,
-                    chunks[i],
-                    vector.tolist()
-                )
+                (document_id, i, chunks[i], vector.tolist())
                 for i, vector in enumerate(vectors)
             ]
-
             insert_query = """
                 INSERT INTO embeddings (document_id, chunk_index, chunk_text, embedding) 
                 VALUES (%s, %s, %s, %s);
@@ -244,12 +228,18 @@ async def upload_pdf(file: UploadFile, user_id: int, session_id: Optional[int] =
                 "session_name": session_name
             }
 
-    except Exception as db_error:
-        print(f"Database operation failed: {db_error}")
+
+    except Exception as e:
+        print(f"Upload process failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"A database operation failed (e.g., connection or insertion error): {db_error}"
+            detail=f"The document upload or processing failed: {e}"
         )
+
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Successfully removed temporary file: {file_path}")
 
 @app.get("/retrieveChatHistory/", status_code=status.HTTP_200_OK)
 async def retrieve_chat_history(session_id: int):
@@ -268,7 +258,6 @@ async def retrieve_chat_history(session_id: int):
                     (session_id,)
                 )
                 ChatHistory = cur.fetchall()
-                # print(ChatHistory)
 
     except Exception as db_error:
         print(f"Database operation failed: {db_error}")
