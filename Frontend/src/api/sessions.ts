@@ -264,15 +264,6 @@ export async function fetchSessions(
 
   const candidates = [
     `${API_BASE_URL}/getSessionsByUserId?user_id=${userId}`,
-    `${API_BASE_URL}/sessions/?user_id=${userId}`,
-    `${API_BASE_URL}/sessions?user_id=${userId}`,
-    `${API_BASE_URL}/api/sessions/?user_id=${userId}`,
-    `${API_BASE_URL}/api/sessions?user_id=${userId}`,
-    `${API_BASE_URL}/user-sessions/?user_id=${userId}`,
-    `${API_BASE_URL}/user-sessions?user_id=${userId}`,
-    `${API_BASE_URL}/user/${userId}/sessions`,
-    `${API_BASE_URL}/getSessions/?user_id=${userId}`,
-    `${API_BASE_URL}/getSessions?user_id=${userId}`,
   ];
 
   const errors: string[] = [];
