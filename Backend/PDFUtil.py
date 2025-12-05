@@ -8,7 +8,6 @@ import urllib.parse
 import google.generativeai as genai
 
 
-# Load environment variables from .env
 load_dotenv()
 
 gemini_api_key = os.environ["GEMINI_API_KEY"]
