@@ -9,6 +9,8 @@ from PIL import Image, ImageDraw, ImageFont
 from huggingface_hub import InferenceClient
 import json
 
+import edge_tts
+
 from dbconnect import get_cursor
 from ScriptGen import generate_video_script
 
@@ -41,15 +43,13 @@ client = InferenceClient(
 )
 
 
-def fetch_pdf_from_db(document_id):
-    """Fetch pdf_content (bytea) safely using your existing db connection."""
-    with get_cursor() as cur:
-        cur.execute("SELECT pdf_content FROM document WHERE document_id = %s", (document_id,))
-        row = cur.fetchone()  # fetch before context closes
-        if not row:
-            raise Exception(f"No document found with id={document_id}")
-        return row[0]  # bytea content
 
+
+# Helper to generate Edge-TTS narration synchronously
+def generate_tts_edge(text, outfile="speech.mp3", voice="en-US-MichelleNeural"):
+    communicate = edge_tts.Communicate(text, voice=voice)
+    communicate.save_sync(outfile)
+    return outfile
 
 
 def script_to_video(slides):
@@ -80,11 +80,11 @@ def script_to_video(slides):
         img_path = f"EduVideo/generated_images/slide_{i}.png"
         img.save(img_path)
 
-        # === Generate audio ===
+        # === Generate audio using Edge-TTS ===
         print(" Generating narration...")
-        tts = gTTS(slide["narration"])
         audio_path = f"EduVideo/audio/slide_{i}.mp3"
-        tts.save(audio_path)
+        communicate = edge_tts.Communicate(slide["narration"], voice="en-US-MichelleNeural")
+        communicate.save_sync(audio_path)
 
         # Get audio duration
         duration = MP3(audio_path).info.length
@@ -93,16 +93,24 @@ def script_to_video(slides):
         bg_img = Image.new("RGB", (1920, 1080), bg_color)
         w, h = bg_img.size
         corner_img = Image.open(img_path).convert("RGBA")
-        corner_img.thumbnail((450, 450))
+        corner_img.thumbnail((600, 600))
 
         frame_dir = f"EduVideo/frames/slide_{i}"
         os.makedirs(frame_dir, exist_ok=True)
 
         text = slide["text"]
         total_chars = len(text)
-        step_delay = 0.1  # seconds per character (slow typewriter)
-        total_frames = int(duration / step_delay)
+        step_delay = 0.1  # seconds per character
 
+        # ensure typing has enough time to finish even if narration is short
+        min_duration_for_typing = total_chars * step_delay
+        duration = max(duration, min_duration_for_typing)
+
+        total_frames = int(duration / step_delay)
+        if total_frames < 1:
+            total_frames = 1
+
+        # build partial texts (typewriter)
         partial_texts = [text[:j] for j in range(1, total_chars + 1)]
         while len(partial_texts) < total_frames:
             partial_texts.append(text)
@@ -110,11 +118,22 @@ def script_to_video(slides):
         for f_idx, partial_text in enumerate(partial_texts):
             frame = bg_img.copy()
             draw = ImageDraw.Draw(frame)
+
+            # Calculate zoom factor but cap size at 650x650
+            zoom_factor = 1 + 0.01 * f_idx
+            new_w = min(int(corner_img.width * zoom_factor), 650)
+            new_h = min(int(corner_img.height * zoom_factor), 650)
+            zoomed_img = corner_img.resize((new_w, new_h), resample=Image.LANCZOS)
+
+            # Paste the zoomed image first
+            frame.paste(zoomed_img, (w - new_w - 50, 80), zoomed_img)
+
+            # Draw text on top
             draw.multiline_text((200, 400), partial_text, font=font, fill=text_color, spacing=15)
-            frame.paste(corner_img, (w - corner_img.width - 50, 80), corner_img)
             frame.save(f"{frame_dir}/frame_{f_idx:04d}.png")
 
-        # === Create slide video (duration synced to narration) ===
+        # === Create slide video (duration synced to narration/typing) ===
+        # Standardize encoding parameters so concat later works
         fps = max(5, int(len(partial_texts) / duration))
         video_path = f"EduVideo/output/slide_{i}.mp4"
         subprocess.run([
@@ -124,11 +143,12 @@ def script_to_video(slides):
             "-i", audio_path,
             "-t", str(duration),
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
+            "-c:a", "aac", "-ar", "44100", "-ac", "2",
             video_path
-        ])
+        ], check=True)
 
         slide_videos.append(video_path)
+
 
     # === Merge all slides (no fade) ===
     with open("EduVideo/output/list.txt", "w") as f:
@@ -144,7 +164,7 @@ def script_to_video(slides):
         final_video
     ])
 
-    # print(f"\n Teaching video created successfully: {final_video}")
+    
     return final_video
 
 

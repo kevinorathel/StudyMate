@@ -23,7 +23,8 @@ from AudioGen import summarize_chunk, generate_continued_script, generate_initia
     cleanup_directory
 
 import json
-from VideoGen import generate_video_script, script_to_video
+from VideoGen import script_to_video
+from ScriptGen import generate_video_script
 
 app = FastAPI(title="StudyMate API")
 
@@ -575,7 +576,7 @@ async def generate_session_flashcards(session_id: int):
 
 # Request body model
 class VideoRequest(BaseModel):
-    document_id: int
+    session_id: int
 
 # Response model
 class VideoResponse(BaseModel):
@@ -585,7 +586,7 @@ class VideoResponse(BaseModel):
 async def generate_video(request: VideoRequest):
     try:
         # Generate JSON slides for the document
-        json_slides = generate_video_script(request.document_id)
+        json_slides = generate_video_script(request.session_id)
 
         # Ensure valid JSON array
         if not json_slides.strip().startswith("["):
