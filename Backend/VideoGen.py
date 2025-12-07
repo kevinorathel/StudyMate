@@ -9,13 +9,13 @@ from PIL import Image, ImageDraw, ImageFont
 from huggingface_hub import InferenceClient
 import json
 
-import edge_tts
-
 from dbconnect import get_cursor
 from ScriptGen import generate_video_script
 
 import os
 import shutil
+
+from gtts import gTTS
 
 from dotenv import load_dotenv
 
@@ -45,10 +45,9 @@ client = InferenceClient(
 
 
 
-# Helper to generate Edge-TTS narration synchronously
-def generate_tts_edge(text, outfile="speech.mp3", voice="en-US-MichelleNeural"):
-    communicate = edge_tts.Communicate(text, voice=voice)
-    communicate.save_sync(outfile)
+def generate_tts_gtts(text, outfile="speech.mp3"):
+    tts = gTTS(text=text, lang="en")
+    tts.save(outfile)
     return outfile
 
 
@@ -80,11 +79,10 @@ def script_to_video(slides):
         img_path = f"EduVideo/generated_images/slide_{i}.png"
         img.save(img_path)
 
-        # === Generate audio using Edge-TTS ===
+        # === Generate audio using gTTS (REPLACED Coqui) ===
         print(" Generating narration...")
         audio_path = f"EduVideo/audio/slide_{i}.mp3"
-        communicate = edge_tts.Communicate(slide["narration"], voice="en-US-MichelleNeural")
-        communicate.save_sync(audio_path)
+        generate_tts_gtts(slide["narration"], audio_path)
 
         # Get audio duration
         duration = MP3(audio_path).info.length
@@ -133,7 +131,6 @@ def script_to_video(slides):
             frame.save(f"{frame_dir}/frame_{f_idx:04d}.png")
 
         # === Create slide video (duration synced to narration/typing) ===
-        # Standardize encoding parameters so concat later works
         fps = max(5, int(len(partial_texts) / duration))
         video_path = f"EduVideo/output/slide_{i}.mp4"
         subprocess.run([
@@ -149,7 +146,6 @@ def script_to_video(slides):
 
         slide_videos.append(video_path)
 
-
     # === Merge all slides (no fade) ===
     with open("EduVideo/output/list.txt", "w") as f:
         for v in slide_videos:
@@ -164,7 +160,6 @@ def script_to_video(slides):
         final_video
     ])
 
-    
     return final_video
 
 

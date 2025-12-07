@@ -504,8 +504,10 @@ class VideoRequest(BaseModel):
 class VideoResponse(BaseModel):
     filename: str
 
-@app.post("/generateVideo", response_model=VideoResponse)
-async def generate_video(request: VideoRequest):
+
+
+@app.post("/generateVideo")
+async def generate_video(request: VideoRequest, background_tasks: BackgroundTasks):
     try:
         # Generate JSON slides for the document
         json_slides = generate_video_script(request.session_id)
@@ -516,13 +518,29 @@ async def generate_video(request: VideoRequest):
 
         slides = json.loads(json_slides)
 
-        # Generate video from slides
-        filename = script_to_video(slides)
+        # Run blocking video generation in a thread
+        final_video_path = await asyncio.to_thread(script_to_video, slides)
 
-        return VideoResponse(filename=filename)
+        if not final_video_path or not os.path.exists(final_video_path):
+            raise HTTPException(
+                status_code=500,
+                detail="Video generation failed."
+            )
+
+        output_dir = os.path.dirname(final_video_path)
+
+        # Return FileResponse with fixed download filename
+        return FileResponse(
+            path=final_video_path,
+            filename="StudyMateVideo.mp4",  # <-- forced download name
+            media_type="video/mp4",
+            background=BackgroundTasks([BackgroundTask(cleanup_directory, output_dir)])
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Video generation failed: {e}")
+
+
 
 
 if __name__ == "__main__":
