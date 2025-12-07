@@ -25,6 +25,7 @@ import { Loader } from "@/components/ui/loader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { generateAudioLesson } from "@/api/audio";
+import { generateVideoLesson } from "@/api/video";
 import { API_BASE_URL } from "@/config";
 
 const NOTES_STORAGE_KEY = "studymate.notesBySession";
@@ -427,6 +428,8 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = React.useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
   const [audioError, setAudioError] = React.useState<string | null>(null);
+  const [isGeneratingVideo, setIsGeneratingVideo] = React.useState(false);
+  const [videoError, setVideoError] = React.useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = React.useState(false);
   const [summaryError, setSummaryError] = React.useState<string | null>(null);
 
@@ -1151,10 +1154,33 @@ export default function Dashboard() {
                         },
                       },
                       {
-                        label: "  Overview",
+                        label: "Video Overview",
                         icon: "🎬",
                         color:
                           "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300",
+                        onClick: async () => {
+                          if (studioDisabled) return;
+                          if (selectedSessionId === null) {
+                            window.alert("Please select a session first.");
+                            return;
+                          }
+                          setIsGeneratingVideo(true);
+                          setVideoError(null);
+                          try {
+                            const filename = await generateVideoLesson(
+                              selectedSessionId
+                            );
+                            window.alert(
+                              `Video overview "${filename}" downloaded successfully!`
+                            );
+                          } catch (error) {
+                            const message = (error as Error).message;
+                            setVideoError(message);
+                            window.alert(`Error generating video: ${message}`);
+                          } finally {
+                            setIsGeneratingVideo(false);
+                          }
+                        },
                       },
                       {
                         label: "Summary Notes",
@@ -1212,6 +1238,8 @@ export default function Dashboard() {
                         }
                         disabled={
                           studioDisabled ||
+                          (isGeneratingVideo &&
+                            tile.label === "Video Overview") ||
                           (isGeneratingAudio &&
                             tile.label === "Audio Overview") ||
                           (isGeneratingSummary &&
@@ -1227,6 +1255,9 @@ export default function Dashboard() {
                         {isGeneratingAudio &&
                         tile.label === "Audio Overview" ? (
                           <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
+                        ) : isGeneratingVideo &&
+                          tile.label === "Video Overview" ? (
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-green-700 border-t-transparent dark:border-green-300 dark:border-t-transparent" />
                         ) : isGeneratingSummary &&
                           tile.label === "Summary Notes" ? (
                           <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
@@ -1238,6 +1269,9 @@ export default function Dashboard() {
                         <span>
                           {isGeneratingAudio && tile.label === "Audio Overview"
                             ? "Generating Audio..."
+                            : isGeneratingVideo &&
+                              tile.label === "Video Overview"
+                            ? "Generating Video..."
                             : isGeneratingSummary &&
                               tile.label === "Summary Notes"
                             ? "Generating Summary..."
@@ -1248,6 +1282,16 @@ export default function Dashboard() {
                       </button>
                     ))}
                   </div>
+
+                  {audioError && (
+                    <p className="text-xs text-red-500 mt-2">{audioError}</p>
+                  )}
+                  {videoError && (
+                    <p className="text-xs text-red-500 mt-2">{videoError}</p>
+                  )}
+                  {summaryError && (
+                    <p className="text-xs text-red-500 mt-2">{summaryError}</p>
+                  )}
                 </div>
 
                 <div className="space-y-3 pt-2">
@@ -1763,6 +1807,29 @@ export default function Dashboard() {
                     icon: "🎬",
                     color:
                       "bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300",
+                    onClick: async () => {
+                      if (studioDisabled) return;
+                      if (selectedSessionId === null) {
+                        window.alert("Please select a session first.");
+                        return;
+                      }
+                      setIsGeneratingVideo(true);
+                      setVideoError(null);
+                      try {
+                        const filename = await generateVideoLesson(
+                          selectedSessionId
+                        );
+                        window.alert(
+                          `Video overview "${filename}" downloaded successfully!`
+                        );
+                      } catch (error) {
+                        const message = (error as Error).message;
+                        setVideoError(message);
+                        window.alert(`Error generating video: ${message}`);
+                      } finally {
+                        setIsGeneratingVideo(false);
+                      }
+                    },
                   },
                   {
                     label: "Summary Notes",
@@ -1812,6 +1879,7 @@ export default function Dashboard() {
                     onClick={tile.onClick}
                     disabled={
                       studioDisabled ||
+                      (isGeneratingVideo && tile.label === "Video Overview") ||
                       (isGeneratingAudio && tile.label === "Audio Overview") ||
                       (isGeneratingSummary && tile.label === "Summary Notes") ||
                       (flashcardsLoading && tile.label === "Flashcards")
@@ -1819,6 +1887,8 @@ export default function Dashboard() {
                   >
                     {isGeneratingAudio && tile.label === "Audio Overview" ? (
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-blue-700 border-t-transparent dark:border-blue-300 dark:border-t-transparent" />
+                    ) : isGeneratingVideo && tile.label === "Video Overview" ? (
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-green-700 border-t-transparent dark:border-green-300 dark:border-t-transparent" />
                     ) : isGeneratingSummary &&
                       tile.label === "Summary Notes" ? (
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-violet-700 border-t-transparent dark:border-violet-300 dark:border-t-transparent" />
@@ -1834,6 +1904,9 @@ export default function Dashboard() {
 
               {audioError && (
                 <p className="text-xs text-red-500 mt-2">{audioError}</p>
+              )}
+              {videoError && (
+                <p className="text-xs text-red-500 mt-2">{videoError}</p>
               )}
               {summaryError && (
                 <p className="text-xs text-red-500 mt-2">{summaryError}</p>
