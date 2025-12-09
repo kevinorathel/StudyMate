@@ -19,7 +19,6 @@ from gtts import gTTS
 
 from dotenv import load_dotenv
 
-#Load environment variables from .env
 load_dotenv()
 
 nebius_api_key = os.environ["NEBIUS_API_KEY"]
@@ -59,7 +58,7 @@ def script_to_video(slides):
     ensure_empty_dir("EduVideo/generated_images")
 
     # === Visual Style ===
-    font_path = "/System/Library/Fonts/Times.ttc"
+    font_path = "./misc/Times Regular.ttf"
     font = ImageFont.truetype(font_path, 70)
     text_color = (50, 25, 5)
     bg_color = (245, 240, 230)
@@ -165,4 +164,3 @@ def script_to_video(slides):
 
 
 
-    

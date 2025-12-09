@@ -1,6 +1,6 @@
 import google.generativeai as genai
 import psycopg2
-import fitz  # PyMuPDF
+import fitz
 import io
 import json
 import re
@@ -29,38 +29,28 @@ def fetch_and_summarize_pdfs(session_id):
     4. Return the summarized text.
     """
 
-    # 1. Fetch all PDFs for session
     with get_cursor() as cur:
         cur.execute("""
-            SELECT d.pdf_content
-            FROM document d
-            JOIN sessiondocuments s ON s.document_id = d.document_id
-            WHERE s.session_id = %s
+            SELECT e.chunk_text
+            FROM embeddings e
+            JOIN sessiondocuments s ON s.document_id = e.document_id
+            WHERE s.session_id = %s;
         """, (session_id,))
         rows = cur.fetchall()
 
     if not rows:
         raise Exception(f"No PDFs found for session_id={session_id}")
 
-    pdf_bytes_list = [row[0] for row in rows]
-
-
-    # 2. Extract text from PDFs
-
+    doc_text_list = [row[0] for row in rows]
 
     all_text = ""
 
-    for pdf_bytes in pdf_bytes_list:
-        pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        for page in pdf_doc:
-            all_text += page.get_text()
-        pdf_doc.close()
+    for doc_text in doc_text_list:
+        all_text += " " + doc_text
+
 
     if not all_text.strip():
         all_text = "No readable text extracted from the PDFs."
-
-
-    # 3. Summarize using Google Gemini
 
     model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -188,9 +178,11 @@ def summarize_and_generate_script(pdf_text):
 
 # Main Function
 def generate_video_script(session_id):
-    #pdf_bytes = fetch_pdf_from_db(session_id)
-    #pdf_text = extract_text_from_pdf(pdf_bytes)
+    # pdf_bytes = fetch_pdf_from_db(session_id)
+    # pdf_text = extract_text_from_pdf(pdf_bytes)
+    print("Fetching PDFs\n")
     pdf_text = fetch_and_summarize_pdfs(session_id)
+    print("Generating script\n")
     script = summarize_and_generate_script(pdf_text)
     return script
 

@@ -9,7 +9,7 @@ export async function generateAudioLesson(sessionId: number): Promise<string> {
 
   if (!response.ok) {
     const errorText = await response.text(); 
-    throw new Error(errorText || `Failed to generate audio lesson (HTTP ${response.status})`);
+    throw new Error(errorText || `Failed to generate audio lesson. Try again for a smaller session`);
   }
 
   const contentDisposition = response.headers.get('Content-Disposition');
