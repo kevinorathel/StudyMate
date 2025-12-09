@@ -54,7 +54,7 @@ class AskRequest(BaseModel):
     question: str
 
 class VideoRequest(BaseModel):
-    document_id: int
+    session_id: int
 
 class VideoResponse(BaseModel):
     filename: str
@@ -128,7 +128,6 @@ async def login_user(payload: LoginRequest):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
             cur.close()
-            #conn.close()
 
             return {"message": "Login successful", "user_id": user_id}
 
@@ -495,17 +494,6 @@ async def generate_session_flashcards(session_id: int):
             detail=f"An unexpected error occurred during flashcard generation: {e}"
         )
 
-
-# Request body model
-class VideoRequest(BaseModel):
-    session_id: int
-
-# Response model
-class VideoResponse(BaseModel):
-    filename: str
-
-
-
 @app.post("/generateVideo", status_code=status.HTTP_202_ACCEPTED)
 async def generate_video(request: VideoRequest):
     """
@@ -513,16 +501,14 @@ async def generate_video(request: VideoRequest):
     Returns a 202 Accepted status immediately.
     """
     try:
-        # Generate JSON slides for the session
+
         json_slides = generate_video_script(request.session_id)
 
-        # Ensure valid JSON array
         if not json_slides.strip().startswith("["):
             json_slides = f"[{json_slides}]"
 
         slides = json.loads(json_slides)
 
-        # Run blocking video generation in a thread
         final_video_path = await asyncio.to_thread(script_to_video, slides)
 
         if not final_video_path or not os.path.exists(final_video_path):
@@ -531,14 +517,17 @@ async def generate_video(request: VideoRequest):
                 detail="Video generation failed in background task."
             )
 
-        output_dir = os.path.dirname(final_video_path)
+        # output_dir = os.path.dirname(final_video_path)
 
-        # Return downloadable video with forced filename
+        with get_cursor() as cur:
+            cur.execute("SELECT s.session_name FROM sessions s WHERE s.session_id = %s;", (request.session_id,))
+            session_name = cur.fetchone()
+
         return FileResponse(
             path=final_video_path,
             filename="StudyMateVideo.mp4",
             media_type="video/mp4",
-            background=BackgroundTasks([BackgroundTask(cleanup_directory, output_dir)])
+            background=BackgroundTasks([BackgroundTask(cleanup_directory, "EduVideo")]),
         )
 
     except Exception as e:
