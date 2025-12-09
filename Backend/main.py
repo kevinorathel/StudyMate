@@ -501,6 +501,7 @@ async def generate_video(request: VideoRequest):
     Returns a 202 Accepted status immediately.
     """
     try:
+
         json_slides = generate_video_script(request.session_id)
 
         if not json_slides.strip().startswith("["):
@@ -516,7 +517,7 @@ async def generate_video(request: VideoRequest):
                 detail="Video generation failed in background task."
             )
 
-        output_dir = os.path.dirname(final_video_path)
+        # output_dir = os.path.dirname(final_video_path)
 
         with get_cursor() as cur:
             cur.execute("SELECT s.session_name FROM sessions s WHERE s.session_id = %s;", (request.session_id,))
@@ -524,9 +525,9 @@ async def generate_video(request: VideoRequest):
 
         return FileResponse(
             path=final_video_path,
-            filename=session_name,
+            filename="StudyMateVideo.mp4",
             media_type="video/mp4",
-            background=BackgroundTasks([BackgroundTask(cleanup_directory, output_dir)]),
+            background=BackgroundTasks([BackgroundTask(cleanup_directory, "EduVideo")]),
         )
 
     except Exception as e:
@@ -535,7 +536,6 @@ async def generate_video(request: VideoRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error scheduling or completing video generation."
         )
-
 
 
 
