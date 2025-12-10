@@ -41,6 +41,7 @@ client = InferenceClient(
     api_key=nebius_api_key  # <-- Add your key here
 )
 
+schnell_model = "black-forest-labs/FLUX.1-schnell"
 
 
 
@@ -73,7 +74,7 @@ def script_to_video(slides):
         print("Generating image from Nebius prompt...")
         img = client.text_to_image(
             slide["img_prompt"],
-            model="black-forest-labs/FLUX.1-schnell"
+            model=schnell_model
         )
         img_path = f"EduVideo/generated_images/slide_{i}.png"
         img.save(img_path)
