@@ -109,12 +109,12 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
         }
       } else if (typeof entry === "string") {
         const segments = entry
-          .split(/answer\s*[:\-]/i)
+          .split(/answer\s*[:-]/i)
           .map((segment) => segment.trim())
           .filter(Boolean);
         if (segments.length >= 2) {
           const question = segments[0]
-            .replace(/^(?:\d+\.\s*)?(?:q(?:uestion)?\s*[:\-])?/i, "")
+            .replace(/^(?:\d+\.\s*)?(?:q(?:uestion)?\s*[:-])?/i, "")
             .trim();
           const answer = segments.slice(1).join(" ").trim();
           if (question && answer) {
@@ -193,7 +193,7 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
 
     let questionLine = lines[0];
     const questionMatch = questionLine.match(
-      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:\-\.]|\))?\s*(.+)$/i
+      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:.-]|\))?\s*(.+)$/i
     );
     if (questionMatch && questionMatch[1]) {
       questionLine = questionMatch[1].trim();
@@ -201,14 +201,14 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
 
     let answerLines = lines.slice(1);
     if (answerLines.length === 0) {
-      const inlineSplit = questionLine.split(/answer\s*[:\-]/i);
+      const inlineSplit = questionLine.split(/answer\s*[:-]/i);
       if (inlineSplit.length > 1) {
         questionLine = inlineSplit[0].trim();
         answerLines = [inlineSplit.slice(1).join(" ").trim()];
       }
     } else if (/^a(?:nswer)?/i.test(answerLines[0])) {
       answerLines[0] = answerLines[0].replace(
-        /^a(?:nswer)?\s*(?:[:\-\.]|\))?\s*/i,
+        /^a(?:nswer)?\s*(?:[:.-]|\))?\s*/i,
         ""
       );
     }
@@ -234,11 +234,11 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
 
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const potentialQuestion = lines[i].replace(
-      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:\-\.]|\))?\s*/i,
+      /^(?:\d+\.\s*)?(?:q(?:uestion)?|card)\s*(?:[:.-]|\))?\s*/i,
       ""
     );
     const potentialAnswer = lines[i + 1].replace(
-      /^a(?:nswer)?\s*(?:[:\-\.]|\))?\s*/i,
+      /^a(?:nswer)?\s*(?:[:.-]|\))?\s*/i,
       ""
     );
     if (potentialQuestion && potentialAnswer) {
@@ -251,7 +251,7 @@ function parseFlashcardsResponse(raw: string): Flashcard[] {
   }
 
   const qaRegex =
-    /(?:^|\n)\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)[^:\n]*[:\-]\s*(.+?)(?:\r?\n|\r|\n)+\s*(?:[\-\*]?\s*)?(?:a(?:nswer)?)[:\-\s]+([\s\S]+?)(?=(?:\n\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)\b|\n\s*[\-\*]\s*(?:q(?:uestion)?|card)\b|$))/gi;
+    /(?:^|\n)\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)[^:\n]*[:-]\s*(.+?)(?:\r?\n|\r|\n)+\s*(?:[-*]?\s*)?(?:a(?:nswer)?)[:\s-]+([\s\S]+?)(?=(?:\n\s*(?:\d+\.\s*)?(?:q(?:uestion)?|card)\b|\n\s*[-*]\s*(?:q(?:uestion)?|card)\b|$))/gi;
 
   const regexCards: Flashcard[] = [];
   for (const match of normalized.matchAll(qaRegex)) {
@@ -427,11 +427,8 @@ export default function Dashboard() {
 
   const [isUploading, setIsUploading] = React.useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = React.useState(false);
-  const [audioError, setAudioError] = React.useState<string | null>(null);
   const [isGeneratingVideo, setIsGeneratingVideo] = React.useState(false);
-  const [videoError, setVideoError] = React.useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = React.useState(false);
-  const [summaryError, setSummaryError] = React.useState<string | null>(null);
 
   const [isFlashcardModalOpen, setIsFlashcardModalOpen] = React.useState(false);
   const [flashcards, setFlashcards] = React.useState<Flashcard[]>([]);
@@ -583,8 +580,13 @@ export default function Dashboard() {
       });
   }, [selectedSessionId, messagesBySession]);
 
-  const messages =
-    selectedSessionId != null ? messagesBySession[selectedSessionId] ?? [] : [];
+  const messages = React.useMemo(
+    () =>
+      selectedSessionId != null
+        ? messagesBySession[selectedSessionId] ?? []
+        : [],
+    [messagesBySession, selectedSessionId]
+  );
 
   React.useEffect(() => {
     if (!chatContainerRef.current) {
@@ -1133,7 +1135,6 @@ export default function Dashboard() {
                             return;
                           }
                           setIsGeneratingAudio(true);
-                          setAudioError(null);
                           try {
                             const filename = await generateAudioLesson(
                               selectedSessionId
@@ -1142,7 +1143,7 @@ export default function Dashboard() {
                               `Audio lesson "${filename}" downloaded successfully!`
                             );
                           } catch (error) {
-                            setAudioError((error as Error).message);
+                            console.error("Error generating audio:", error);
                             window.alert(
                               `Error generating audio: ${
                                 (error as Error).message
@@ -1165,7 +1166,6 @@ export default function Dashboard() {
                             return;
                           }
                           setIsGeneratingVideo(true);
-                          setVideoError(null);
                           try {
                             const filename = await generateVideoLesson(
                               selectedSessionId
@@ -1175,7 +1175,7 @@ export default function Dashboard() {
                             );
                           } catch (error) {
                             const message = (error as Error).message;
-                            setVideoError(message);
+                            console.error("Error generating video:", error);
                             window.alert(`Error generating video: ${message}`);
                           } finally {
                             setIsGeneratingVideo(false);
@@ -1194,14 +1194,13 @@ export default function Dashboard() {
                             return;
                           }
                           setIsGeneratingSummary(true);
-                          setSummaryError(null);
                           try {
                             await generateSessionSummary(selectedSessionId);
                             window.alert(
                               "Session summary PDF downloaded successfully!"
                             );
                           } catch (error) {
-                            setSummaryError((error as Error).message);
+                            console.error("Error generating summary:", error);
                             window.alert(
                               `Error generating summary: ${
                                 (error as Error).message
@@ -1282,16 +1281,6 @@ export default function Dashboard() {
                       </button>
                     ))}
                   </div>
-
-                  {audioError && (
-                    <p className="text-xs text-red-500 mt-2">{audioError}</p>
-                  )}
-                  {videoError && (
-                    <p className="text-xs text-red-500 mt-2">{videoError}</p>
-                  )}
-                  {summaryError && (
-                    <p className="text-xs text-red-500 mt-2">{summaryError}</p>
-                  )}
                 </div>
 
                 <div className="space-y-3 pt-2">
@@ -1784,7 +1773,6 @@ export default function Dashboard() {
                         return;
                       }
                       setIsGeneratingAudio(true);
-                      setAudioError(null);
                       try {
                         const filename = await generateAudioLesson(
                           selectedSessionId
@@ -1793,7 +1781,7 @@ export default function Dashboard() {
                           `Audio lesson "${filename}" downloaded successfully!`
                         );
                       } catch (error) {
-                        setAudioError((error as Error).message);
+                        console.error("Error generating audio:", error);
                         window.alert(
                           `Error generating audio: ${(error as Error).message}`
                         );
@@ -1814,7 +1802,6 @@ export default function Dashboard() {
                         return;
                       }
                       setIsGeneratingVideo(true);
-                      setVideoError(null);
                       try {
                         const filename = await generateVideoLesson(
                           selectedSessionId
@@ -1824,7 +1811,7 @@ export default function Dashboard() {
                         );
                       } catch (error) {
                         const message = (error as Error).message;
-                        setVideoError(message);
+                        console.error("Error generating video:", error);
                         window.alert(`Error generating video: ${message}`);
                       } finally {
                         setIsGeneratingVideo(false);
@@ -1843,14 +1830,13 @@ export default function Dashboard() {
                         return;
                       }
                       setIsGeneratingSummary(true);
-                      setSummaryError(null);
                       try {
                         await generateSessionSummary(selectedSessionId);
                         window.alert(
                           "Session summary PDF downloaded successfully!"
                         );
                       } catch (error) {
-                        setSummaryError((error as Error).message);
+                        console.error("Error generating summary:", error);
                         window.alert(
                           `Error generating summary: ${
                             (error as Error).message
@@ -1901,16 +1887,6 @@ export default function Dashboard() {
                   </button>
                 ))}
               </div>
-
-              {audioError && (
-                <p className="text-xs text-red-500 mt-2">{audioError}</p>
-              )}
-              {videoError && (
-                <p className="text-xs text-red-500 mt-2">{videoError}</p>
-              )}
-              {summaryError && (
-                <p className="text-xs text-red-500 mt-2">{summaryError}</p>
-              )}
             </div>
 
             {/* === MY NOTES === */}

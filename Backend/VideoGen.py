@@ -1,13 +1,17 @@
 # experiment
-
+import base64
 import os
 import subprocess
 from time import sleep
+
+import requests
 from gtts import gTTS
 from mutagen.mp3 import MP3
 from PIL import Image, ImageDraw, ImageFont
 from huggingface_hub import InferenceClient
 import json
+
+from openai import OpenAI
 
 from dbconnect import get_cursor
 from ScriptGen import generate_video_script
@@ -35,13 +39,16 @@ def ensure_empty_dir(path):
     os.makedirs(path, exist_ok=True)  # recreate folder
 
 
-# === Setup HuggingFace Nebius client ===
-client = InferenceClient(
-    provider="nebius",
-    api_key=nebius_api_key  # <-- Add your key here
-)
 
-schnell_model = "black-forest-labs/FLUX.1-schnell"
+API_URL = "https://api.tokenfactory.nebius.com/v1/images/generations"
+
+# --- Request Headers ---
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {nebius_api_key}"
+}
+
+schnell_model = "black-forest-labs/flux-schnell"
 
 
 
@@ -70,14 +77,55 @@ def script_to_video(slides):
     for i, slide in enumerate(slides):
         print(f"\n Slide {i+1}: {slide['text'].splitlines()[0]}")
 
-        # === Generate image ===
         print("Generating image from Nebius prompt...")
-        img = client.text_to_image(
-            slide["img_prompt"],
-            model=schnell_model
-        )
+
+        data = {
+            "model": schnell_model,
+            "prompt": slide["img_prompt"],
+            "size": "1024x1024",
+            "response_format": "b64_json",
+            "n": 1,
+            "extra_body": {
+                "negative_prompt": "ugly, blurry, low quality, duplicate"
+            }
+        }
+
+        try:
+            response = requests.post(API_URL, headers=headers, data=json.dumps(data))
+            response.raise_for_status()
+
+            response_data = response.json()
+
+            if response.status_code == 402:
+                print(f"Error 402: Payment Required. Response ID: {response_data.get('id')}")
+                return
+
+            image_b64 = response_data['data'][0]['b64_json']
+
+            image_data = base64.b64decode(image_b64)
+            BASE_DIR = "EduVideo/generated_images"
+
+            file_name = f"slide_{i}.png"
+            full_path = os.path.join(BASE_DIR, file_name)
+
+            try:
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            except OSError as e:
+                print(f"Error creating directory structure: {e}")
+            try:
+                with open(full_path, "wb") as f:
+                    f.write(image_data)
+
+                print(f"Image successfully generated and saved to: {full_path}")
+            except Exception as e:
+                print(f"Error occured: {e}")
+
+        except Exception as e:
+            print(f"Exception occured: {e}")
+
+
+
         img_path = f"EduVideo/generated_images/slide_{i}.png"
-        img.save(img_path)
 
         # === Generate audio using gTTS (REPLACED Coqui) ===
         print(" Generating narration...")
