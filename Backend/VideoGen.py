@@ -19,7 +19,6 @@ from gtts import gTTS
 
 from dotenv import load_dotenv
 
-#Load environment variables from .env
 load_dotenv()
 
 nebius_api_key = os.environ["NEBIUS_API_KEY"]
@@ -42,6 +41,7 @@ client = InferenceClient(
     api_key=nebius_api_key  # <-- Add your key here
 )
 
+schnell_model = "black-forest-labs/FLUX.1-schnell"
 
 
 
@@ -59,7 +59,7 @@ def script_to_video(slides):
     ensure_empty_dir("EduVideo/generated_images")
 
     # === Visual Style ===
-    font_path = "/System/Library/Fonts/Times.ttc"
+    font_path = "./misc/Times Regular.ttf"
     font = ImageFont.truetype(font_path, 70)
     text_color = (50, 25, 5)
     bg_color = (245, 240, 230)
@@ -74,7 +74,7 @@ def script_to_video(slides):
         print("Generating image from Nebius prompt...")
         img = client.text_to_image(
             slide["img_prompt"],
-            model="black-forest-labs/FLUX.1-schnell"
+            model=schnell_model
         )
         img_path = f"EduVideo/generated_images/slide_{i}.png"
         img.save(img_path)
@@ -165,4 +165,3 @@ def script_to_video(slides):
 
 
 
-    
