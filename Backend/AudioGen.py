@@ -229,8 +229,8 @@ def blocking_audio_generation_task(session_id: int):
             cur.execute("SELECT e.chunk_text FROM embeddings e LEFT JOIN sessiondocuments sd ON sd.document_id  = e.document_id WHERE sd.session_id = %s;", (session_id,))
             session_chunks = cur.fetchall()
 
-            if len(session_chunks) > 30:
-                return None, None
+            # if len(session_chunks) > 30:
+            #     return None, None
 
             for i, chunk in enumerate(session_chunks):
 
